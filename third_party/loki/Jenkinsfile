@@ -1,0 +1,31 @@
+node("Windows_YG_77.101") {
+ws("D:\\Jenkins\\workspace\\loki_${env.BRANCH_NAME}") {
+  stage("scm Win") {
+      cleanWs()
+      checkout scm
+  }
+
+  stage("init version") {
+    def versionJson = readJSON file: 'version.json'
+
+    env.VERSION = versionJson['major'] + '.' + versionJson['minor'] + '.' + versionJson['patch']
+    echo "version: ${env.VERSION}"
+  }
+
+  stage("Create loki Win32 package") {
+    bat 'conan create . -pr win-x86-msvc142-MDd -b=missing'
+    bat 'conan create . -pr win-x86-msvc142-MD -b=missing'
+    bat 'conan create ./loki_module_conanfile.py'
+  }
+
+  stage("Upload loki Win32 packages") {
+    lokiPackageName = "loki/" + "${env.VERSION}" + "@spider"
+    echo "lokiPackageName : ${lokiPackageName}"
+    bat "conan upload -r=cvte ${lokiPackageName} -c"
+
+    lokiModulePackageName = "loki_module/" + "${env.VERSION}" + "@spider"
+    echo "lokiModulePackageName: ${lokiModulePackageName}"
+    bat "conan upload -r=cvte ${lokiModulePackageName} -c"
+  }
+}
+}

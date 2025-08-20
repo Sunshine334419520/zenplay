@@ -1,0 +1,44 @@
+{
+    "preDefines": {
+        "version": "1.0.0-beta",
+        "author": "杨光"
+    },
+    "nuspecs": [
+        {
+            "nuspec": {
+                "id": "Cvte.loki.native.static.v140.md",
+                "version": "${version}",
+                "title": "loki Dynamic",
+                "authors": "${author}",
+                "projectUrl": "https://gitlab.gz.cvte.cn/app_center/link/pc/cbb/loki",
+                "copyright": "Copyright © 2020 GuangZhou Shirui Electronics Co., Ltd",
+                "description": "loki静态库",
+                "dependencies": []
+            },
+            "target": {
+                "source": "./",
+                "conditions": {
+                    "PlatformToolset": [
+                        "v14"
+                    ],
+                    "Configuration": [
+                        "debug",
+                        "release"
+                    ],
+                    "Platform": [
+                        "win32"
+                    ]
+                },
+                "include": {
+                    "file": [ "build/include/" ]
+                },
+                "lib": {
+                    "file": [ "build/${Configuration}/loki.lib" ]
+                },
+                "pdb": {
+                    "file": [ "build/${Configuration}/loki.pdb" ]
+                }
+            }
+        }
+    ]
+}
