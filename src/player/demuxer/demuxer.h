@@ -28,9 +28,13 @@ class Demuxer {
   AVDictionary* GetMetadata() const;
   int GetDuration() const;
 
+  int active_video_stream_index() const { return active_video_stream_index_; }
+  int active_audio_stream_index() const { return active_audio_stream_index_; }
+
+  AVStream* findStreamByIndex(int index) const;
+
  private:
   void probeStreams();
-  AVStream* findStreamByIndex(int index) const;
 
   AVFormatContext* format_context_;
   std::vector<int> video_streams_;

@@ -1,0 +1,234 @@
+/* ZenPlay Modern Dark Theme */
+
+/* Main Window */
+QMainWindow {
+    background-color: #1e1e1e;
+    color: #ffffff;
+}
+
+/* Menu Bar */
+QMenuBar {
+    background-color: #2d2d2d;
+    border-bottom: 1px solid #404040;
+    color: #ffffff;
+    font-size: 13px;
+}
+
+QMenuBar::item {
+    background-color: transparent;
+    padding: 6px 12px;
+    border-radius: 4px;
+    margin: 2px;
+}
+
+QMenuBar::item:selected {
+    background-color: #404040;
+}
+
+QMenuBar::item:pressed {
+    background-color: #505050;
+}
+
+/* Menu */
+QMenu {
+    background-color: #2d2d2d;
+    border: 1px solid #404040;
+    color: #ffffff;
+    font-size: 13px;
+}
+
+QMenu::item {
+    padding: 8px 24px;
+    border-radius: 4px;
+    margin: 1px;
+}
+
+QMenu::item:selected {
+    background-color: #0078d4;
+}
+
+QMenu::separator {
+    height: 1px;
+    background-color: #404040;
+    margin: 4px 8px;
+}
+
+/* Video Frame */
+QFrame#videoFrame {
+    background-color: #0a0a0a;
+    border: 2px solid #404040;
+    border-radius: 8px;
+}
+
+/* Control Bar */
+QFrame#controlBar {
+    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
+                                stop: 0 #3d3d3d, stop: 1 #2d2d2d);
+    border-top: 1px solid #505050;
+}
+
+/* Buttons */
+QPushButton {
+    background-color: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 6px;
+    color: #ffffff;
+    font-weight: 500;
+    padding: 8px 16px;
+    font-size: 13px;
+}
+
+QPushButton:hover {
+    background-color: rgba(255, 255, 255, 0.2);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+QPushButton:pressed {
+    background-color: rgba(255, 255, 255, 0.3);
+}
+
+QPushButton:disabled {
+    background-color: rgba(255, 255, 255, 0.05);
+    color: #666666;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* Control Buttons (Play, Stop, etc.) */
+QPushButton#playPauseBtn,
+QPushButton#stopBtn,
+QPushButton#fullscreenBtn {
+    background-color: transparent;
+    border: 1px solid transparent;
+    border-radius: 20px;
+    font-size: 16px;
+    padding: 8px;
+}
+
+QPushButton#playPauseBtn:hover,
+QPushButton#stopBtn:hover,
+QPushButton#fullscreenBtn:hover {
+    background-color: rgba(0, 120, 212, 0.3);
+    border: 1px solid rgba(0, 120, 212, 0.5);
+}
+
+QPushButton#playPauseBtn:pressed,
+QPushButton#stopBtn:pressed,
+QPushButton#fullscreenBtn:pressed {
+    background-color: rgba(0, 120, 212, 0.5);
+}
+
+/* Sliders */
+QSlider::groove:horizontal {
+    border: 1px solid #404040;
+    height: 6px;
+    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
+                                stop: 0 #1a1a1a, stop: 1 #2a2a2a);
+    border-radius: 3px;
+}
+
+QSlider::handle:horizontal {
+    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
+                                stop: 0 #ffffff, stop: 1 #e0e0e0);
+    border: 1px solid #888888;
+    width: 14px;
+    margin: -5px 0;
+    border-radius: 7px;
+}
+
+QSlider::handle:horizontal:hover {
+    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
+                                stop: 0 #f0f0f0, stop: 1 #d0d0d0);
+    border: 1px solid #0078d4;
+}
+
+QSlider::sub-page:horizontal {
+    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
+                                stop: 0 #0078d4, stop: 1 #005a9e);
+    border-radius: 3px;
+}
+
+/* Progress Slider */
+QSlider#progressSlider::groove:horizontal {
+    height: 4px;
+}
+
+QSlider#progressSlider::handle:horizontal {
+    width: 12px;
+    margin: -4px 0;
+    border-radius: 6px;
+}
+
+/* Volume Slider */
+QSlider#volumeSlider::groove:horizontal {
+    height: 4px;
+}
+
+QSlider#volumeSlider::handle:horizontal {
+    width: 10px;
+    margin: -3px 0;
+    border-radius: 5px;
+}
+
+/* Labels */
+QLabel {
+    color: #cccccc;
+    font-size: 12px;
+}
+
+QLabel#timeLabel,
+QLabel#durationLabel {
+    font-family: "Consolas", "Monaco", monospace;
+    font-size: 11px;
+    min-width: 50px;
+}
+
+QLabel#volumeIcon {
+    font-size: 16px;
+}
+
+/* Status Bar */
+QStatusBar {
+    background-color: #2d2d2d;
+    color: #cccccc;
+    border-top: 1px solid #404040;
+    font-size: 12px;
+}
+
+/* Dialog Boxes */
+QDialog {
+    background-color: #2d2d2d;
+    color: #ffffff;
+}
+
+QLineEdit {
+    background-color: #1a1a1a;
+    border: 1px solid #404040;
+    border-radius: 4px;
+    padding: 6px 8px;
+    color: #ffffff;
+    font-size: 13px;
+}
+
+QLineEdit:focus {
+    border: 1px solid #0078d4;
+}
+
+/* Message Box */
+QMessageBox {
+    background-color: #2d2d2d;
+    color: #ffffff;
+}
+
+QMessageBox QLabel {
+    color: #ffffff;
+}
+
+/* Tooltips */
+QToolTip {
+    background-color: #404040;
+    color: #ffffff;
+    border: 1px solid #606060;
+    border-radius: 4px;
+    padding: 4px 8px;
+    font-size: 11px;
+}

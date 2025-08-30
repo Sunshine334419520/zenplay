@@ -31,7 +31,11 @@ class AudioDecoder : public Decoder {
     if (!codec_context_) {
       return 0;  // Not opened
     }
-    return codec_context_->channels;
+    return codec_context_->ch_layout.nb_channels;
+  }
+
+  const AVChannelLayout& channel_layout() const {
+    return codec_context_->ch_layout;
   }
 };
 

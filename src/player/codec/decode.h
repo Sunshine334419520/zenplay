@@ -35,16 +35,12 @@ class Decoder {
   void Close();
 
   bool Decode(AVPacket* packet, std::vector<AVFramePtr>* frames);
-  void Flush();
+  bool Flush(std::vector<AVFramePtr>* frames);
 
-  AVDictionary* GetMetadata() const {
-    if (codec_context_) {
-      return codec_context_->metadata;
-    }
-    return nullptr;
-  }
+  bool opened() const { return opened_; }
+  AVMediaType codec_type() const { return codec_type_; }
 
-  bool IsOpened() const { return opened_; }
+  void FlushBuffers();
 
  protected:
   std::unique_ptr<AVCodecContext, AVCodecCtxDeleter> codec_context_;

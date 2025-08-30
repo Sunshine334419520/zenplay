@@ -1,8 +1,14 @@
 #include "player/demuxer/demuxer.h"
 
+#include "demuxer.h"
+
 namespace zenplay {
 Demuxer::Demuxer() : format_context_(nullptr) {
   std::call_once(init_once_flag_, []() { avformat_network_init(); });
+}
+
+Demuxer::~Demuxer() {
+  Close();
 }
 
 bool Demuxer::Open(const std::string& url) {
@@ -33,6 +39,7 @@ bool Demuxer::Open(const std::string& url) {
   }
 
   probeStreams();
+  int32_t test = format_context_->duration;
   return true;
 }
 
@@ -106,6 +113,14 @@ int Demuxer::GetDuration() const {
   }
   return static_cast<int>(format_context_->duration /
                           AV_TIME_BASE);  // Duration in seconds
+}
+
+AVStream* Demuxer::findStreamByIndex(int index) const {
+  if (!format_context_ || index < 0 ||
+      index >= static_cast<int>(format_context_->nb_streams)) {
+    return nullptr;  // Invalid index or not opened
+  }
+  return format_context_->streams[index];
 }
 
 void Demuxer::probeStreams() {

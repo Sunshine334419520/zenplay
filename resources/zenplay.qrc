@@ -1,0 +1,13 @@
+<RCC>
+    <qresource prefix="/styles">
+        <file>styles/dark_theme.qss</file>
+    </qresource>
+    <qresource prefix="/icons">
+        <!-- Add icon files here when available -->
+        <!-- <file>icons/zenplay.png</file> -->
+        <!-- <file>icons/play.png</file> -->
+        <!-- <file>icons/pause.png</file> -->
+        <!-- <file>icons/stop.png</file> -->
+        <!-- <file>icons/fullscreen.png</file> -->
+    </qresource>
+</RCC>

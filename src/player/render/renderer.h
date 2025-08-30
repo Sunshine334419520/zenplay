@@ -1,21 +1,40 @@
 #pragma once
 
+#include <cstdint>
+
+extern "C" {
+#include <libavutil/frame.h>
+}
+
+namespace zenplay {
+
 class Renderer {
-public:
-    static Renderer* CreateRenderer();
+ public:
+  static Renderer* CreateRenderer();
 
-    Renderer() = default;
-    virtual ~Renderer() = default;
+  Renderer() = default;
+  virtual ~Renderer() = default;
 
-    // Initialize the renderer
-    virtual void Init() = 0;
+  // Initialize the renderer with window handle
+  virtual bool Init(void* window_handle, int width, int height) = 0;
 
-    // Render a frame
-    virtual void RenderFrame() = 0;
+  // Render a video frame
+  virtual bool RenderFrame(AVFrame* frame) = 0;
 
-    // Cleanup resources
-    virtual void OnResize() = 0;
+  // Clear the render target
+  virtual void Clear() = 0;
 
-    // Resize the viewport
-    virtual void resize(int width, int height) = 0;
+  // Present the rendered frame
+  virtual void Present() = 0;
+
+  // Handle window resize
+  virtual void OnResize(int width, int height) = 0;
+
+  // Cleanup resources
+  virtual void Cleanup() = 0;
+
+  // Get renderer info
+  virtual const char* GetRendererName() const = 0;
 };
+
+}  // namespace zenplay

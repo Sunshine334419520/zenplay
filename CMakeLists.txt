@@ -12,6 +12,7 @@ find_package(nlohmann_json)
 find_package(Qt6 REQUIRED COMPONENTS Core Widgets Gui)
 find_package(ffmpeg REQUIRED)
 find_package(spdlog REQUIRED)
+find_package(SDL2 REQUIRED)
 #find_package(ZLIB REQUIRED)
 
 set(CMAKE_AUTOMOC ON)
@@ -23,7 +24,10 @@ add_subdirectory(third_party/loki)
 # src files
 file(GLOB_RECURSE SRC_FILES "src/*.cpp" "src/*.h" "src/*.ui")
 
-add_executable(${PROJECT_NAME} ${SRC_FILES})
+# resource files
+set(QRC_FILES resources/zenplay.qrc)
+
+add_executable(${PROJECT_NAME} ${SRC_FILES} ${QRC_FILES})
 
 target_link_libraries(${PROJECT_NAME} PRIVATE 
     nlohmann_json::nlohmann_json
@@ -34,7 +38,10 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     ffmpeg::avcodec
     ffmpeg::avformat
     ffmpeg::avfilter
+    ffmpeg::swscale
     spdlog::spdlog
+    SDL2::SDL2
+    SDL2::SDL2main
     loki
 )
 
