@@ -10,7 +10,10 @@
 
 #include "loki/src/callback.h"
 #include "loki/src/threading/loki_thread.h"
+#include "player/audio/audio_player.h"
 #include "player/codec/decode.h"
+#include "player/sync/av_sync_controller.h"
+#include "player/video/video_player.h"
 
 extern "C" {
 #include <libavformat/avformat.h>
@@ -22,6 +25,16 @@ class Demuxer;
 class VideoDecoder;
 class AudioDecoder;
 class Renderer;
+
+/**
+ * @brief 播放控制器 - 统一协调音视频播放和同步
+ *
+ * 职责：
+ * 1. 管理解封装和解码线程
+ * 2. 协调AudioPlayer和VideoPlayer
+ * 3. 控制AVSyncController进行音视频同步
+ * 4. 提供统一的播放控制接口
+ */
 
 // 媒体数据队列，线程安全
 template <typename T>
@@ -77,14 +90,68 @@ class PlaybackController {
   PlaybackController(Demuxer* demuxer,
                      VideoDecoder* video_decoder,
                      AudioDecoder* audio_decoder,
-                     Renderer* renderer);
+                     std::shared_ptr<Renderer> renderer);
   ~PlaybackController();
 
+  /**
+   * @brief 开始播放
+   * @return 成功返回true
+   */
   bool Start();
+
+  /**
+   * @brief 停止播放
+   */
   void Stop();
+
+  /**
+   * @brief 暂停播放
+   */
   void Pause();
+
+  /**
+   * @brief 恢复播放
+   */
   void Resume();
-  bool Seek(int64_t timestamp);
+
+  /**
+   * @brief 跳转到指定时间
+   * @param timestamp_ms 目标时间戳(毫秒)
+   * @return 成功返回true
+   */
+  bool Seek(int64_t timestamp_ms);
+
+  /**
+   * @brief 设置音量
+   * @param volume 音量值(0.0-1.0)
+   */
+  void SetVolume(float volume);
+
+  /**
+   * @brief 获取音量
+   */
+  float GetVolume() const;
+
+  /**
+   * @brief 获取播放统计信息
+   */
+  struct PlaybackStats {
+    // 音频统计
+    size_t audio_queue_size = 0;
+    float audio_volume = 0.0f;
+
+    // 视频统计
+    size_t video_queue_size = 0;
+    double video_fps = 0.0;
+    int64_t video_frames_rendered = 0;
+    int64_t video_frames_dropped = 0;
+
+    // 同步统计
+    double sync_offset_ms = 0.0;
+    const char* sync_quality = "Unknown";
+    bool is_in_sync = false;
+  };
+  PlaybackStats GetStats() const;
 
   // 获取播放状态
   bool IsPlaying() const { return is_playing_.load(); }
@@ -100,7 +167,8 @@ class PlaybackController {
   // 音频解码任务 - 在专门的解码线程执行
   void AudioDecodeTask();
 
-  // 渲染任务 - 在UI线程执行
+  // 同步控制任务 - 定期更新时钟同步
+  void SyncControlTask();
   void RenderTask();
 
   // 停止所有线程
@@ -111,13 +179,16 @@ class PlaybackController {
   Demuxer* demuxer_;
   VideoDecoder* video_decoder_;
   AudioDecoder* audio_decoder_;
-  Renderer* renderer_;
+  std::shared_ptr<Renderer> renderer_;
+
+  // 播放器组件
+  std::unique_ptr<AudioPlayer> audio_player_;
+  std::unique_ptr<VideoPlayer> video_player_;
+  std::unique_ptr<AVSyncController> av_sync_controller_;
 
   // 数据队列
   ThreadSafeQueue<AVPacket*> video_packet_queue_;
   ThreadSafeQueue<AVPacket*> audio_packet_queue_;
-  ThreadSafeQueue<AVFramePtr> video_frame_queue_;
-  ThreadSafeQueue<AVFramePtr> audio_frame_queue_;
 
   // 线程控制
   std::atomic<bool> is_playing_{false};
@@ -128,6 +199,7 @@ class PlaybackController {
   std::unique_ptr<std::thread> demux_thread_;
   std::unique_ptr<std::thread> video_decode_thread_;
   std::unique_ptr<std::thread> audio_decode_thread_;
+  std::unique_ptr<std::thread> sync_control_thread_;
 
   // 同步相关
   mutable std::mutex state_mutex_;

@@ -1,0 +1,227 @@
+#pragma once
+
+#include <atomic>
+#include <chrono>
+#include <condition_variable>
+#include <memory>
+#include <mutex>
+#include <queue>
+#include <thread>
+
+#include "render/renderer.h"
+
+extern "C" {
+#include <libavutil/frame.h>
+#include <libavutil/rational.h>
+}
+
+namespace zenplay {
+
+// 智能指针定义
+using AVFramePtr = std::unique_ptr<AVFrame, void (*)(AVFrame*)>;
+
+/**
+ * @brief 视频播放器
+ *
+ * 负责从视频帧队列中取出解码后的视频帧，
+ * 进行时间戳管理和同步，然后通过Renderer渲染显示
+ */
+class VideoPlayer {
+ public:
+  /**
+   * @brief 视频播放器配置
+   */
+  struct VideoConfig {
+    double target_fps = 30.0;       // 目标帧率
+    bool vsync_enabled = true;      // 垂直同步
+    int max_frame_queue_size = 30;  // 最大帧队列大小
+    bool drop_frames = true;        // 是否允许丢帧以维持同步
+  };
+
+  /**
+   * @brief 帧时间戳信息
+   */
+  struct FrameTimestamp {
+    int64_t pts = AV_NOPTS_VALUE;      // 显示时间戳
+    int64_t dts = AV_NOPTS_VALUE;      // 解码时间戳
+    AVRational time_base{1, 1000000};  // 时间基准
+
+    // 转换为毫秒
+    double ToMilliseconds() const {
+      if (pts == AV_NOPTS_VALUE) {
+        return 0.0;
+      }
+      return pts * av_q2d(time_base) * 1000.0;
+    }
+  };
+
+  VideoPlayer();
+  ~VideoPlayer();
+
+  /**
+   * @brief 初始化视频播放器
+   * @param renderer 渲染器实例
+   * @param config 视频配置
+   * @return 成功返回true
+   */
+  bool Init(std::shared_ptr<Renderer> renderer,
+            const VideoConfig& config = VideoConfig{});
+
+  /**
+   * @brief 开始播放
+   * @return 成功返回true
+   */
+  bool Start();
+
+  /**
+   * @brief 停止播放
+   */
+  void Stop();
+
+  /**
+   * @brief 暂停播放
+   */
+  void Pause();
+
+  /**
+   * @brief 恢复播放
+   */
+  void Resume();
+
+  /**
+   * @brief 推送视频帧到播放队列
+   * @param frame 视频帧
+   * @param timestamp 时间戳信息
+   * @return 成功返回true
+   */
+  bool PushFrame(AVFramePtr frame, const FrameTimestamp& timestamp);
+
+  /**
+   * @brief 清空视频帧队列
+   */
+  void ClearFrames();
+
+  /**
+   * @brief 设置音频时钟参考(用于音视频同步)
+   * @param audio_clock_ms 音频时钟毫秒数
+   */
+  void SetAudioClock(double audio_clock_ms);
+
+  /**
+   * @brief 获取当前视频时钟
+   * @return 当前视频时钟毫秒数
+   */
+  double GetVideoClock() const;
+
+  /**
+   * @brief 检查是否正在播放
+   */
+  bool IsPlaying() const;
+
+  /**
+   * @brief 获取队列中的帧数
+   */
+  size_t GetQueueSize() const;
+
+  /**
+   * @brief 获取播放统计信息
+   */
+  struct PlaybackStats {
+    int64_t frames_rendered = 0;  // 已渲染帧数
+    int64_t frames_dropped = 0;   // 丢弃帧数
+    double average_fps = 0.0;     // 平均帧率
+    double sync_offset_ms = 0.0;  // 音视频同步偏移
+    double render_time_ms = 0.0;  // 平均渲染时间
+  };
+  PlaybackStats GetStats() const;
+
+  /**
+   * @brief 清理资源
+   */
+  void Cleanup();
+
+ private:
+  /**
+   * @brief 视频帧信息
+   */
+  struct VideoFrame {
+    AVFramePtr frame;
+    FrameTimestamp timestamp;
+    std::chrono::steady_clock::time_point receive_time;
+
+    VideoFrame(AVFramePtr f, const FrameTimestamp& ts)
+        : frame(std::move(f)),
+          timestamp(ts),
+          receive_time(std::chrono::steady_clock::now()) {}
+  };
+
+  /**
+   * @brief 视频渲染线程主函数
+   */
+  void VideoRenderThread();
+
+  /**
+   * @brief 计算帧显示时间
+   * @param frame_info 帧信息
+   * @return 应该显示的时间点
+   */
+  std::chrono::steady_clock::time_point CalculateFrameDisplayTime(
+      const VideoFrame& frame_info);
+
+  /**
+   * @brief 检查是否需要丢帧
+   * @param frame_info 帧信息
+   * @param current_time 当前时间
+   * @return true表示应该丢帧
+   */
+  bool ShouldDropFrame(const VideoFrame& frame_info,
+                       std::chrono::steady_clock::time_point current_time);
+
+  /**
+   * @brief 音视频同步计算
+   * @param video_pts_ms 视频PTS毫秒数
+   * @return 同步偏移量，正数表示视频超前，负数表示音频超前
+   */
+  double CalculateAVSync(double video_pts_ms);
+
+  /**
+   * @brief 更新播放统计
+   */
+  void UpdateStats(bool frame_dropped, double render_time_ms);
+
+ private:
+  // 渲染器
+  std::shared_ptr<Renderer> renderer_;
+
+  // 配置
+  VideoConfig config_;
+
+  // 视频帧队列
+  mutable std::mutex frame_queue_mutex_;
+  std::queue<std::unique_ptr<VideoFrame>> frame_queue_;
+  std::condition_variable frame_available_;
+
+  // 渲染线程
+  std::unique_ptr<std::thread> render_thread_;
+  std::atomic<bool> is_playing_;
+  std::atomic<bool> is_paused_;
+  std::atomic<bool> should_stop_;
+
+  // 同步相关
+  mutable std::mutex sync_mutex_;
+  std::condition_variable pause_cv_;
+
+  // 时钟同步
+  std::atomic<double> audio_clock_ms_;                     // 音频时钟参考
+  std::atomic<double> video_clock_ms_;                     // 当前视频时钟
+  std::chrono::steady_clock::time_point play_start_time_;  // 播放开始时间
+  std::atomic<double> sync_offset_ms_;                     // 同步偏移量
+
+  // 统计信息
+  mutable std::mutex stats_mutex_;
+  PlaybackStats stats_;
+  std::chrono::steady_clock::time_point last_stats_update_;
+  int frames_since_last_stats_;
+};
+
+}  // namespace zenplay
