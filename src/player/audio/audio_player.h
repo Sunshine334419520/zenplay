@@ -14,10 +14,9 @@ extern "C" {
 #include <libswresample/swresample.h>
 }
 
-namespace zenplay {
+#include "player/common/common_def.h"
 
-// 智能指针定义
-using AVFramePtr = std::unique_ptr<AVFrame, void (*)(AVFrame*)>;
+namespace zenplay {
 
 /**
  * @brief 音频播放器

@@ -11,12 +11,12 @@ class Demuxer;
 class Renderer;
 class PlaybackController;
 
-class VideoPlayer {
+class ZenPlayer {
  public:
   enum class PlayState { kStopped, kPlaying, kPaused };
 
-  VideoPlayer();
-  ~VideoPlayer();
+  ZenPlayer();
+  ~ZenPlayer();
 
   bool Open(const std::string& url);
   void Close();

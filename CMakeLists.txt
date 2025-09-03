@@ -19,10 +19,54 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
 
+if (WIN32)
+    add_definitions(-DOS_WIN)
+    add_definitions(-DNOMINMAX)
+elseif(APPLE)
+    add_definitions(-DOS_MAC)
+elseif(UNIX)
+    add_definitions(-DOS_LINUX)
+endif()
+
 add_subdirectory(third_party/loki)
 
 # src files
-file(GLOB_RECURSE SRC_FILES "src/*.cpp" "src/*.h" "src/*.ui")
+file(GLOB SRC_FILES "src/main.cpp")
+file(GLOB PLAYER_MAIN_FILES 
+    "src/player/zen_player.cpp"
+    "src/player/zen_player.h"
+    "src/player/playback_controller.h"
+    "src/player/playback_controller.cpp")
+file(GLOB PLAYER_COMMON_FILES
+    "src/player/common/*.cpp"
+    "src/player/common/*.h"
+)
+file(GLOB_RECURSE PLAYER_CODEC_FILES "src/player/codec/*.cpp" "src/player/codec/*.h")
+file(GLOB_RECURSE PLAYER_DEMUXER_FILES "src/player/demuxer/*.cpp" "src/player/demuxer/*.h")
+file(GLOB PLAYER_AUDIO_OUTPUT_FILES "src/player/audio/*.cpp" "src/player/audio/*.h")
+file(GLOB_RECURSE PLAYER_VIDEO_FILES "src/player/video/*.cpp" "src/player/video/*.h")
+file(GLOB_RECURSE PLAYER_SYNC_FILES "src/player/sync/*.cpp" "src/player/sync/*.h")
+file(GLOB_RECURSE PLAYER_LOADER_FILES "src/player/loader/*.cpp" "src/player/loader/*.h")
+file(GLOB_RECURSE VIEW_FILES "src/view/*.cpp" "src/view/*.h" "src/view/*.ui")
+
+if (WIN32)
+    list(APPEND PLAYER_AUDIO_OUTPUT_FILES "src/player/audio/impl/wasapi_audio_output.cpp" "src/player/audio/impl/wasapi_audio_output.h")
+elseif(APPLE)
+    list(APPEND PLAYER_AUDIO_OUTPUT_FILES "src/player/audio/impl/core_audio_output.mm" "src/player/audio/impl/core_audio_output.h")
+elseif(UNIX)
+    list(APPEND PLAYER_AUDIO_OUTPUT_FILES "src/player/audio/impl/alsa_audio_output.cpp" "src/player/audio/impl/alsa_audio_output.h")
+endif()
+
+
+list(APPEND SRC_FILES ${PLAYER_MAIN_FILES})
+list(APPEND SRC_FILES ${PLAYER_COMMON_FILES})
+list(APPEND SRC_FILES ${PLAYER_CODEC_FILES})
+list(APPEND SRC_FILES ${PLAYER_DEMUXER_FILES})
+list(APPEND SRC_FILES ${PLAYER_AUDIO_OUTPUT_FILES})
+list(APPEND SRC_FILES ${PLAYER_VIDEO_FILES})
+list(APPEND SRC_FILES ${PLAYER_SYNC_FILES})
+list(APPEND SRC_FILES ${PLAYER_LOADER_FILES})
+list(APPEND SRC_FILES ${VIEW_FILES})
 
 # resource files
 set(QRC_FILES resources/zenplay.qrc)

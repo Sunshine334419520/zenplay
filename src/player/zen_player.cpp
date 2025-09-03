@@ -1,24 +1,24 @@
-#include "player/video_player.h"
+#include "player/zen_player.h"
 
 #include "player/codec/audio_decoder.h"
 #include "player/codec/video_decoder.h"
 #include "player/demuxer/demuxer.h"
 #include "player/playback_controller.h"
-#include "player/render/renderer.h"
+#include "player/video/render/renderer.h"
 
 namespace zenplay {
 
-VideoPlayer::VideoPlayer()
+ZenPlayer::ZenPlayer()
     : demuxer_(std::make_unique<Demuxer>()),
       video_decoder_(std::make_unique<VideoDecoder>()),
       audio_decoder_(std::make_unique<AudioDecoder>()),
       renderer_(std::unique_ptr<Renderer>(Renderer::CreateRenderer())) {}
 
-VideoPlayer::~VideoPlayer() {
+ZenPlayer::~ZenPlayer() {
   Close();
 }
 
-bool VideoPlayer::Open(const std::string& url) {
+bool ZenPlayer::Open(const std::string& url) {
   if (is_opened_) {
     Close();
   }
@@ -58,7 +58,7 @@ bool VideoPlayer::Open(const std::string& url) {
   return true;  // Successfully opened
 }
 
-bool VideoPlayer::SetRenderWindow(void* window_handle, int width, int height) {
+bool ZenPlayer::SetRenderWindow(void* window_handle, int width, int height) {
   if (!is_opened_ || !renderer_) {
     return false;
   }
@@ -71,7 +71,7 @@ bool VideoPlayer::SetRenderWindow(void* window_handle, int width, int height) {
   return true;
 }
 
-void VideoPlayer::Close() {
+void ZenPlayer::Close() {
   if (!is_opened_) {
     return;
   }
@@ -99,7 +99,7 @@ void VideoPlayer::Close() {
   state_ = PlayState::kStopped;
 }
 
-bool VideoPlayer::Play() {
+bool ZenPlayer::Play() {
   if (!is_opened_ || !playback_controller_) {
     return false;  // Not opened
   }
@@ -124,7 +124,7 @@ bool VideoPlayer::Play() {
   return false;
 }
 
-bool VideoPlayer::Pause() {
+bool ZenPlayer::Pause() {
   if (!is_opened_ || !playback_controller_) {
     return false;
   }
@@ -138,7 +138,7 @@ bool VideoPlayer::Pause() {
   return true;
 }
 
-bool VideoPlayer::Stop() {
+bool ZenPlayer::Stop() {
   if (!is_opened_ || !playback_controller_) {
     return false;
   }
@@ -152,7 +152,7 @@ bool VideoPlayer::Stop() {
   return true;
 }
 
-bool VideoPlayer::Seek(int64_t timestamp, bool backward) {
+bool ZenPlayer::Seek(int64_t timestamp, bool backward) {
   if (!is_opened_ || !playback_controller_) {
     return false;
   }
@@ -160,7 +160,7 @@ bool VideoPlayer::Seek(int64_t timestamp, bool backward) {
   return playback_controller_->Seek(timestamp);
 }
 
-int VideoPlayer::GetDuration() const {
+int ZenPlayer::GetDuration() const {
   if (!is_opened_ || !demuxer_) {
     return 0;
   }

@@ -21,9 +21,9 @@
 #include <QWidget>
 #include <memory>
 
-#include "player/video_player.h"
-
 namespace zenplay {
+
+class ZenPlayer;
 
 class VideoDisplayWidget;
 
@@ -92,7 +92,7 @@ class MainWindow : public QMainWindow {
   QLabel* statusLabel_;
 
   // Player and timer
-  std::unique_ptr<VideoPlayer> player_;
+  std::unique_ptr<ZenPlayer> player_;
   QTimer* updateTimer_;
 
   // State

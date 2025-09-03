@@ -8,7 +8,9 @@
 #include <queue>
 #include <thread>
 
-#include "render/renderer.h"
+#include "player/common/common_def.h"
+#include "player/sync/av_sync_controller.h"
+#include "player/video/render/renderer.h"
 
 extern "C" {
 #include <libavutil/frame.h>
@@ -16,9 +18,6 @@ extern "C" {
 }
 
 namespace zenplay {
-
-// 智能指针定义
-using AVFramePtr = std::unique_ptr<AVFrame, void (*)(AVFrame*)>;
 
 /**
  * @brief 视频播放器
@@ -55,7 +54,7 @@ class VideoPlayer {
     }
   };
 
-  VideoPlayer();
+  VideoPlayer(AVSyncController* sync_controller = nullptr);
   ~VideoPlayer();
 
   /**
@@ -100,18 +99,6 @@ class VideoPlayer {
    * @brief 清空视频帧队列
    */
   void ClearFrames();
-
-  /**
-   * @brief 设置音频时钟参考(用于音视频同步)
-   * @param audio_clock_ms 音频时钟毫秒数
-   */
-  void SetAudioClock(double audio_clock_ms);
-
-  /**
-   * @brief 获取当前视频时钟
-   * @return 当前视频时钟毫秒数
-   */
-  double GetVideoClock() const;
 
   /**
    * @brief 检查是否正在播放
@@ -187,11 +174,14 @@ class VideoPlayer {
   /**
    * @brief 更新播放统计
    */
-  void UpdateStats(bool frame_dropped, double render_time_ms);
+  void UpdateStats(bool frame_dropped,
+                   double render_time_ms,
+                   double sync_offset_ms = 0.0);
 
  private:
-  // 渲染器
+  // 渲染器和同步控制器
   std::shared_ptr<Renderer> renderer_;
+  AVSyncController* av_sync_controller_;  // 外部管理的同步控制器
 
   // 配置
   VideoConfig config_;
@@ -211,11 +201,8 @@ class VideoPlayer {
   mutable std::mutex sync_mutex_;
   std::condition_variable pause_cv_;
 
-  // 时钟同步
-  std::atomic<double> audio_clock_ms_;                     // 音频时钟参考
-  std::atomic<double> video_clock_ms_;                     // 当前视频时钟
+  // 播放时间管理
   std::chrono::steady_clock::time_point play_start_time_;  // 播放开始时间
-  std::atomic<double> sync_offset_ms_;                     // 同步偏移量
 
   // 统计信息
   mutable std::mutex stats_mutex_;

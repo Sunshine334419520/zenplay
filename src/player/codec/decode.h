@@ -9,11 +9,9 @@ extern "C" {
 #include <libavutil/avutil.h>
 }
 
-namespace zenplay {
+#include "player/common/common_def.h"
 
-struct AVFrameDeleter {
-  void operator()(AVFrame* frame) const { av_frame_free(&frame); }
-};
+namespace zenplay {
 
 struct AVCodecCtxDeleter {
   void operator()(AVCodecContext* ctx) const {
@@ -23,8 +21,6 @@ struct AVCodecCtxDeleter {
     }
   }
 };
-
-using AVFramePtr = std::unique_ptr<AVFrame, AVFrameDeleter>;
 
 class Decoder {
  public:

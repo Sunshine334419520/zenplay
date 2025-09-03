@@ -5,6 +5,7 @@
 #include <mutex>
 
 #include "loki/src/post_task_interface.h"
+#include "loki/src/threading/loki_thread.h"
 #include "player/video/render/renderer.h"
 
 namespace zenplay {
@@ -73,7 +74,7 @@ ReturnT RendererProxy::EnsureUIThread(Func&& func) {
 
   // 否则使用loki::Invoke同步派发到UI线程
   return loki::Invoke<ReturnT>(
-      loki::ID::UI, LOKI_FROM_HERE,
+      loki::ID::UI, FROM_HERE,
       loki::FunctionView<ReturnT()>(std::forward<Func>(func)));
 }
 
@@ -86,7 +87,7 @@ void RendererProxy::EnsureUIThreadVoid(Func&& func) {
   }
 
   // 否则使用loki::Invoke同步派发到UI线程
-  loki::Invoke<void>(loki::ID::UI, LOKI_FROM_HERE,
+  loki::Invoke<void>(loki::ID::UI, FROM_HERE,
                      loki::FunctionView<void()>(std::forward<Func>(func)));
 }
 

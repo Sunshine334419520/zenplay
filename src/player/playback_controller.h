@@ -10,10 +10,8 @@
 
 #include "loki/src/callback.h"
 #include "loki/src/threading/loki_thread.h"
-#include "player/audio/audio_player.h"
 #include "player/codec/decode.h"
 #include "player/sync/av_sync_controller.h"
-#include "player/video/video_player.h"
 
 extern "C" {
 #include <libavformat/avformat.h>
@@ -25,6 +23,8 @@ class Demuxer;
 class VideoDecoder;
 class AudioDecoder;
 class Renderer;
+class VideoPlayer;
+class AudioPlayer;
 
 /**
  * @brief 播放控制器 - 统一协调音视频播放和同步
@@ -169,7 +169,6 @@ class PlaybackController {
 
   // 同步控制任务 - 定期更新时钟同步
   void SyncControlTask();
-  void RenderTask();
 
   // 停止所有线程
   void StopAllThreads();

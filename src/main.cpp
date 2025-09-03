@@ -4,8 +4,20 @@
 #include <QStyleFactory>
 #include <QTextStream>
 
-#include "loki/src/threading/thread.h"
+#include "loki/src/main_message_loop_with_not_main_thread.h"
+#include "loki/src/threading/loki_thread.h"
 #include "view/main_window.h"
+
+// Loki主消息循环代理
+class ZenPlayMessageLoopDelegate : public loki::MainMessageLoop::Delegate {
+ public:
+  void OnSubThreadRegistry(
+      std::vector<std::pair<loki::ID, std::string>>* subThreads) override {
+    // 注册需要的子线程
+    subThreads->push_back({loki::ID::UI, "UI Thread"});
+    subThreads->push_back({loki::ID::IO, "IO Thread"});
+  }
+};
 
 int main(int argc, char* argv[]) {
   QApplication app(argc, argv);
@@ -44,7 +56,14 @@ int main(int argc, char* argv[]) {
     app.setStyleSheet(style);
   }
 
-  // Create and show main window
+  // 初始化loki消息循环
+  ZenPlayMessageLoopDelegate delegate;
+  loki::MainMessageLoopWithNotMainThread message_loop_with_not_main_thread(
+      &delegate);
+  message_loop_with_not_main_thread.Initialize();
+  message_loop_with_not_main_thread.Run();
+
+  // 创建主窗口并显示
   zenplay::MainWindow window;
   window.show();
 

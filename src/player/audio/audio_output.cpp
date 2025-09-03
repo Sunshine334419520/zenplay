@@ -1,12 +1,12 @@
-#include "audio_output.h"
+#include "player/audio/audio_output.h"
 
 #ifdef _WIN32
-#include "impl/wasapi_audio_output.h"
+#include "player/audio/impl/wasapi_audio_output.h"
 #elif defined(__linux__)
-#include "impl/alsa_audio_output.h"
+#include "player/audio/impl/alsa_audio_output.h"
 #elif defined(__APPLE__)
 // TODO: 添加Core Audio实现
-#include "impl/coreaudio_audio_output.h"
+#include "player/audio/impl/coreaudio_audio_output.h"
 #endif
 
 #include <iostream>

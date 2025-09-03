@@ -11,9 +11,11 @@
 
 #ifdef _WIN32
 #include <windows.h>
-
-#include <QWinTaskbarButton>
+// #include <QWinTaskbarButton>  // Removed because it's not used and may not be
+// available
 #endif
+
+#include "player/zen_player.h"
 
 namespace zenplay {
 
@@ -38,7 +40,7 @@ MainWindow::MainWindow(QWidget* parent)
       exitAction_(nullptr),
       aboutAction_(nullptr),
       statusLabel_(nullptr),
-      player_(std::make_unique<VideoPlayer>()),
+      player_(std::make_unique<ZenPlayer>()),
       updateTimer_(new QTimer(this)),
       isDraggingProgress_(false),
       isFullscreen_(false),
@@ -358,19 +360,19 @@ void MainWindow::togglePlayPause() {
   }
 
   switch (player_->GetState()) {
-    case VideoPlayer::PlayState::kStopped:
+    case ZenPlayer::PlayState::kStopped:
       if (player_->Play()) {
         updateTimer_->start();
         statusLabel_->setText(tr("Playing"));
       }
       break;
-    case VideoPlayer::PlayState::kPlaying:
+    case ZenPlayer::PlayState::kPlaying:
       if (player_->Pause()) {
         updateTimer_->stop();
         statusLabel_->setText(tr("Paused"));
       }
       break;
-    case VideoPlayer::PlayState::kPaused:
+    case ZenPlayer::PlayState::kPaused:
       if (player_->Play()) {
         updateTimer_->start();
         statusLabel_->setText(tr("Playing"));
@@ -447,7 +449,7 @@ void MainWindow::updatePlaybackProgress() {
   // For now, just simulate progress
   static int currentTime = 0;
 
-  if (player_->GetState() == VideoPlayer::PlayState::kPlaying) {
+  if (player_->GetState() == ZenPlayer::PlayState::kPlaying) {
     currentTime++;
     if (currentTime <= totalDuration_) {
       updateProgressDisplay(currentTime, totalDuration_);
@@ -468,7 +470,7 @@ void MainWindow::updateControlBarState() {
   }
 
   bool hasMedia = player_->IsOpened();
-  bool isPlaying = (player_->GetState() == VideoPlayer::PlayState::kPlaying);
+  bool isPlaying = (player_->GetState() == ZenPlayer::PlayState::kPlaying);
 
   // Update play/pause button
   if (isPlaying) {
@@ -569,5 +571,3 @@ void VideoDisplayWidget::mouseDoubleClickEvent(QMouseEvent* event) {
 }
 
 }  // namespace zenplay
-
-#include "main_window.moc"
