@@ -1,12 +1,11 @@
 #include "player/playback_controller.h"
 
-#include <iostream>
-
 #include "loki/src/bind_util.h"
 #include "loki/src/location.h"
 #include "player/audio/audio_player.h"
 #include "player/codec/audio_decoder.h"
 #include "player/codec/video_decoder.h"
+#include "player/common/log_manager.h"
 #include "player/demuxer/demuxer.h"
 #include "player/sync/av_sync_controller.h"
 #include "player/video/render/renderer.h"
@@ -18,7 +17,7 @@ namespace zenplay {
 PlaybackController::PlaybackController(Demuxer* demuxer,
                                        VideoDecoder* video_decoder,
                                        AudioDecoder* audio_decoder,
-                                       std::shared_ptr<Renderer> renderer)
+                                       Renderer* renderer)
     : demuxer_(demuxer),
       video_decoder_(video_decoder),
       audio_decoder_(audio_decoder),
@@ -29,7 +28,7 @@ PlaybackController::PlaybackController(Demuxer* demuxer,
   // 初始化音频播放器
   audio_player_ = std::make_unique<AudioPlayer>(av_sync_controller_.get());
   if (!audio_player_->Init()) {
-    std::cerr << "Failed to initialize audio player" << std::endl;
+    MODULE_ERROR(LOG_MODULE_PLAYER, "Failed to initialize audio player");
     audio_player_.reset();
   }
 
@@ -39,10 +38,8 @@ PlaybackController::PlaybackController(Demuxer* demuxer,
     video_player_ = std::make_unique<VideoPlayer>(av_sync_controller_.get());
 
     // 创建线程安全的渲染代理
-    auto renderer_proxy = std::make_shared<RendererProxy>(renderer_);
-
-    if (!video_player_->Init(renderer_proxy)) {
-      std::cerr << "Failed to initialize video player" << std::endl;
+    if (!video_player_->Init(renderer_)) {
+      MODULE_ERROR(LOG_MODULE_PLAYER, "Failed to initialize video player");
       video_player_.reset();
     }
   }
@@ -152,6 +149,10 @@ void PlaybackController::Resume() {
   }
 
   pause_cv_.notify_all();
+}
+
+bool zenplay::PlaybackController::Seek(int64_t timestamp_ms) {
+  return false;
 }
 
 void PlaybackController::DemuxTask() {

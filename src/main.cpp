@@ -6,6 +6,7 @@
 
 #include "loki/src/main_message_loop_with_not_main_thread.h"
 #include "loki/src/threading/loki_thread.h"
+#include "player/common/log_manager.h"
 #include "view/main_window.h"
 
 // Loki主消息循环代理
@@ -21,6 +22,13 @@ class ZenPlayMessageLoopDelegate : public loki::MainMessageLoop::Delegate {
 
 int main(int argc, char* argv[]) {
   QApplication app(argc, argv);
+
+  // 初始化日志系统
+  if (!zenplay::LogManager::Initialize(zenplay::LogManager::LogLevel::DEBUG)) {
+    return -1;
+  }
+
+  ZENPLAY_INFO("Starting ZenPlay Media Player v1.0.0");
 
   // Set application properties
   app.setApplicationName("ZenPlay");
@@ -57,6 +65,7 @@ int main(int argc, char* argv[]) {
   }
 
   // 初始化loki消息循环
+  ZENPLAY_DEBUG("Initializing Loki message loop");
   ZenPlayMessageLoopDelegate delegate;
   loki::MainMessageLoopWithNotMainThread message_loop_with_not_main_thread(
       &delegate);
@@ -64,8 +73,15 @@ int main(int argc, char* argv[]) {
   message_loop_with_not_main_thread.Run();
 
   // 创建主窗口并显示
+  ZENPLAY_INFO("Creating main window");
   zenplay::MainWindow window;
   window.show();
 
-  return app.exec();
+  ZENPLAY_INFO("Application started successfully");
+  int result = app.exec();
+
+  ZENPLAY_INFO("Application exiting");
+  zenplay::LogManager::Shutdown();
+
+  return result;
 }

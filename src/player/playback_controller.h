@@ -90,7 +90,7 @@ class PlaybackController {
   PlaybackController(Demuxer* demuxer,
                      VideoDecoder* video_decoder,
                      AudioDecoder* audio_decoder,
-                     std::shared_ptr<Renderer> renderer);
+                     Renderer* renderer);
   ~PlaybackController();
 
   /**
@@ -178,7 +178,7 @@ class PlaybackController {
   Demuxer* demuxer_;
   VideoDecoder* video_decoder_;
   AudioDecoder* audio_decoder_;
-  std::shared_ptr<Renderer> renderer_;
+  Renderer* renderer_;
 
   // 播放器组件
   std::unique_ptr<AudioPlayer> audio_player_;

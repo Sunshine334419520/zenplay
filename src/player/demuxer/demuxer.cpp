@@ -3,6 +3,9 @@
 #include "demuxer.h"
 
 namespace zenplay {
+
+std::once_flag Demuxer::init_once_flag_;
+
 Demuxer::Demuxer() : format_context_(nullptr) {
   std::call_once(init_once_flag_, []() { avformat_network_init(); });
 }

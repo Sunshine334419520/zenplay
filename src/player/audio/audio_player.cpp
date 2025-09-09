@@ -1,18 +1,23 @@
 #include "audio_player.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cstring>
-#include <iostream>
 
 extern "C" {
 #include <libavutil/channel_layout.h>
 #include <libavutil/opt.h>
 }
 
+#include "../common/log_manager.h"
+
 namespace zenplay {
 
-AudioPlayer::AudioPlayer()
-    : swr_context_(nullptr),
+AudioPlayer::AudioPlayer(AVSyncController* sync_controller)
+    : sync_controller_(sync_controller),
+      base_audio_pts_(0.0),
+      total_samples_played_(0),
+      swr_context_(nullptr),
       resampled_data_(nullptr),
       resampled_data_size_(0),
       max_resampled_samples_(0),
@@ -42,13 +47,13 @@ bool AudioPlayer::Init(const AudioConfig& config) {
   // 创建音频输出设备
   audio_output_ = AudioOutput::Create();
   if (!audio_output_) {
-    std::cerr << "Failed to create audio output device" << std::endl;
+    MODULE_ERROR(LOG_MODULE_AUDIO, "Failed to create audio output device");
     return false;
   }
 
   // 初始化音频输出设备
   if (!audio_output_->Init(output_spec_, AudioOutputCallback, this)) {
-    std::cerr << "Failed to initialize audio output device" << std::endl;
+    MODULE_ERROR(LOG_MODULE_AUDIO, "Failed to initialize audio output device");
     return false;
   }
 
@@ -57,9 +62,10 @@ bool AudioPlayer::Init(const AudioConfig& config) {
                           (config_.target_bits_per_sample / 8);
   internal_buffer_.resize(buffer_size_bytes * 4);  // 4x缓冲以避免underrun
 
-  std::cout << "Audio player initialized: " << config_.target_sample_rate
-            << "Hz, " << config_.target_channels << " channels, "
-            << config_.target_bits_per_sample << " bits" << std::endl;
+  MODULE_INFO(LOG_MODULE_AUDIO,
+              "Audio player initialized: {}Hz, {} channels, {} bits",
+              config_.target_sample_rate, config_.target_channels,
+              config_.target_bits_per_sample);
 
   return true;
 }
@@ -73,12 +79,12 @@ bool AudioPlayer::Start() {
   is_paused_ = false;
 
   if (!audio_output_->Start()) {
-    std::cerr << "Failed to start audio output" << std::endl;
+    MODULE_ERROR(LOG_MODULE_AUDIO, "Failed to start audio output");
     return false;
   }
 
   is_playing_ = true;
-  std::cout << "Audio playback started" << std::endl;
+  MODULE_INFO(LOG_MODULE_AUDIO, "Audio playback started");
   return true;
 }
 
@@ -101,7 +107,14 @@ void AudioPlayer::Stop() {
   // 清空队列
   ClearFrames();
 
-  std::cout << "Audio playback stopped" << std::endl;
+  // 重置PTS跟踪状态
+  {
+    std::lock_guard<std::mutex> pts_lock(pts_mutex_);
+    base_audio_pts_ = 0.0;
+    total_samples_played_ = 0;
+  }
+
+  MODULE_INFO(LOG_MODULE_AUDIO, "Audio playback stopped");
 }
 
 void AudioPlayer::Pause() {
@@ -137,6 +150,15 @@ bool AudioPlayer::PushFrame(AVFramePtr frame) {
     return false;
   }
 
+  // 设置基础PTS，用于音频时钟计算
+  if (base_audio_pts_ == 0.0 && frame->pts != AV_NOPTS_VALUE) {
+    std::lock_guard<std::mutex> pts_lock(pts_mutex_);
+    if (base_audio_pts_ == 0.0) {  // 双重检查
+      base_audio_pts_ = frame->pts;
+      total_samples_played_ = 0;
+    }
+  }
+
   std::lock_guard<std::mutex> lock(frame_queue_mutex_);
 
   // 检查队列大小，避免内存过度使用
@@ -156,6 +178,13 @@ void AudioPlayer::ClearFrames() {
   std::queue<AVFramePtr> empty_queue;
   frame_queue_.swap(empty_queue);
   buffer_read_pos_ = 0;
+
+  // 重置PTS跟踪状态
+  {
+    std::lock_guard<std::mutex> pts_lock(pts_mutex_);
+    base_audio_pts_ = 0.0;
+    total_samples_played_ = 0;
+  }
 }
 
 bool AudioPlayer::IsPlaying() const {
@@ -195,7 +224,33 @@ int AudioPlayer::AudioOutputCallback(void* user_data,
                                      uint8_t* buffer,
                                      int buffer_size) {
   AudioPlayer* player = static_cast<AudioPlayer*>(user_data);
-  return player->FillAudioBuffer(buffer, buffer_size);
+  int bytes_filled = player->FillAudioBuffer(buffer, buffer_size);
+
+  // 更新音频时钟
+  if (bytes_filled > 0 && player->sync_controller_) {
+    int bytes_per_sample =
+        player->config_.target_channels *
+        av_get_bytes_per_sample(player->config_.target_format);
+    int samples_filled = bytes_filled / bytes_per_sample;
+
+    // 更新已播放的总采样数
+    {
+      std::lock_guard<std::mutex> pts_lock(player->pts_mutex_);
+      player->total_samples_played_ += samples_filled;
+
+      // 计算当前音频时钟
+      double samples_per_second = player->config_.target_sample_rate;
+      double current_audio_clock =
+          player->base_audio_pts_ +
+          (player->total_samples_played_ / samples_per_second);
+
+      // 更新同步控制器的音频时钟（转换为毫秒）
+      player->sync_controller_->UpdateAudioClock(
+          current_audio_clock * 1000.0, std::chrono::steady_clock::now());
+    }
+  }
+
+  return bytes_filled;
 }
 
 bool AudioPlayer::InitializeResampler(const AVFrame* frame) {
@@ -207,16 +262,17 @@ bool AudioPlayer::InitializeResampler(const AVFrame* frame) {
   src_channels_ = frame->ch_layout.nb_channels;
   src_format_ = static_cast<AVSampleFormat>(frame->format);
 
-  std::cout << "Initializing resampler: " << src_sample_rate_ << "Hz -> "
-            << config_.target_sample_rate << "Hz, " << src_channels_ << " -> "
-            << config_.target_channels << " channels, "
-            << "format " << av_get_sample_fmt_name(src_format_) << " -> "
-            << av_get_sample_fmt_name(config_.target_format) << std::endl;
+  MODULE_INFO(LOG_MODULE_AUDIO,
+              "Initializing resampler: {}Hz -> {}Hz, {} -> {} channels, format "
+              "{} -> {}",
+              src_sample_rate_, config_.target_sample_rate, src_channels_,
+              config_.target_channels, av_get_sample_fmt_name(src_format_),
+              av_get_sample_fmt_name(config_.target_format));
 
   // 分配重采样上下文
   swr_context_ = swr_alloc();
   if (!swr_context_) {
-    std::cerr << "Failed to allocate resampler context" << std::endl;
+    MODULE_ERROR(LOG_MODULE_AUDIO, "Failed to allocate resampler context");
     return false;
   }
 
@@ -237,7 +293,7 @@ bool AudioPlayer::InitializeResampler(const AVFrame* frame) {
 
   // 初始化重采样器
   if (swr_init(swr_context_) < 0) {
-    std::cerr << "Failed to initialize resampler" << std::endl;
+    MODULE_ERROR(LOG_MODULE_AUDIO, "Failed to initialize resampler");
     swr_free(&swr_context_);
     return false;
   }
@@ -252,7 +308,7 @@ bool AudioPlayer::InitializeResampler(const AVFrame* frame) {
       max_resampled_samples_, config_.target_format, 0);
 
   if (ret < 0) {
-    std::cerr << "Failed to allocate resampled data buffer" << std::endl;
+    MODULE_ERROR(LOG_MODULE_AUDIO, "Failed to allocate resampled data buffer");
     swr_free(&swr_context_);
     return false;
   }
@@ -277,7 +333,7 @@ int AudioPlayer::ResampleFrame(const AVFrame* frame,
                   (const uint8_t**)frame->data, frame->nb_samples);
 
   if (output_samples < 0) {
-    std::cerr << "Error during resampling" << std::endl;
+    MODULE_ERROR(LOG_MODULE_AUDIO, "Error during resampling");
     return -1;
   }
 

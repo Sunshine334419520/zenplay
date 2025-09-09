@@ -1,6 +1,7 @@
 #pragma once
 
 #include <memory>
+#include <string>
 
 #include "../renderer.h"
 
@@ -40,6 +41,9 @@ class SDLRenderer : public Renderer {
   // Update texture with frame data
   bool UpdateTexture(AVFrame* frame);
 
+  // Update texture with format conversion
+  bool UpdateTextureWithConversion(AVFrame* frame);
+
   // Convert frame format if necessary
   bool ConvertFrame(AVFrame* src_frame, AVFrame* dst_frame);
 
@@ -58,6 +62,7 @@ class SDLRenderer : public Renderer {
   int frame_width_;
   int frame_height_;
   AVPixelFormat src_pixel_format_;
+  AVPixelFormat dst_pixel_format_;
 
   // Format conversion
   struct SwsContext* sws_context_;

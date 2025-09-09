@@ -9,7 +9,7 @@
 #include "player/audio/impl/coreaudio_audio_output.h"
 #endif
 
-#include <iostream>
+#include "player/common/log_manager.h"
 
 namespace zenplay {
 
@@ -21,10 +21,10 @@ std::unique_ptr<AudioOutput> AudioOutput::Create() {
 #elif defined(__APPLE__)
   // TODO: 实现Core Audio
   // return std::make_unique<CoreAudioOutput>();
-  std::cerr << "Core Audio not implemented yet" << std::endl;
+  MODULE_WARN(LOG_MODULE_AUDIO, "Core Audio not implemented yet");
   return nullptr;
 #else
-  std::cerr << "Unsupported platform for audio output" << std::endl;
+  MODULE_ERROR(LOG_MODULE_AUDIO, "Unsupported platform for audio output");
   return nullptr;
 #endif
 }

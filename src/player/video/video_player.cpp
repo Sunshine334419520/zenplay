@@ -2,7 +2,8 @@
 
 #include <algorithm>
 #include <cmath>
-#include <iostream>
+
+#include "../common/log_manager.h"
 
 namespace zenplay {
 
@@ -17,13 +18,12 @@ VideoPlayer::~VideoPlayer() {
   Cleanup();
 }
 
-bool VideoPlayer::Init(std::shared_ptr<Renderer> renderer,
-                       const VideoConfig& config) {
+bool VideoPlayer::Init(Renderer* renderer, const VideoConfig& config) {
   renderer_ = renderer;
   config_ = config;
 
   if (!renderer_) {
-    std::cerr << "VideoPlayer: Invalid renderer" << std::endl;
+    MODULE_ERROR(LOG_MODULE_VIDEO, "VideoPlayer: Invalid renderer");
     return false;
   }
 
@@ -31,8 +31,9 @@ bool VideoPlayer::Init(std::shared_ptr<Renderer> renderer,
   stats_ = PlaybackStats{};
   last_stats_update_ = std::chrono::steady_clock::now();
 
-  std::cout << "VideoPlayer initialized: target_fps=" << config_.target_fps
-            << ", max_queue_size=" << config_.max_frame_queue_size << std::endl;
+  MODULE_INFO(LOG_MODULE_VIDEO,
+              "VideoPlayer initialized: target_fps={}, max_queue_size={}",
+              config_.target_fps, config_.max_frame_queue_size);
 
   return true;
 }
@@ -53,7 +54,7 @@ bool VideoPlayer::Start() {
       std::make_unique<std::thread>(&VideoPlayer::VideoRenderThread, this);
 
   is_playing_ = true;
-  std::cout << "VideoPlayer started" << std::endl;
+  MODULE_INFO(LOG_MODULE_VIDEO, "VideoPlayer started");
   return true;
 }
 
@@ -78,19 +79,19 @@ void VideoPlayer::Stop() {
   // 清空队列
   ClearFrames();
 
-  std::cout << "VideoPlayer stopped" << std::endl;
+  MODULE_INFO(LOG_MODULE_VIDEO, "VideoPlayer stopped");
 }
 
 void VideoPlayer::Pause() {
   is_paused_ = true;
-  std::cout << "VideoPlayer paused" << std::endl;
+  MODULE_INFO(LOG_MODULE_VIDEO, "VideoPlayer paused");
 }
 
 void VideoPlayer::Resume() {
   is_paused_ = false;
   pause_cv_.notify_all();
   frame_available_.notify_all();
-  std::cout << "VideoPlayer resumed" << std::endl;
+  MODULE_INFO(LOG_MODULE_VIDEO, "VideoPlayer resumed");
 }
 
 bool VideoPlayer::PushFrame(AVFramePtr frame, const FrameTimestamp& timestamp) {
@@ -142,7 +143,7 @@ VideoPlayer::PlaybackStats VideoPlayer::GetStats() const {
 
 void VideoPlayer::Cleanup() {
   Stop();
-  renderer_.reset();
+  renderer_->Cleanup();
 }
 
 void VideoPlayer::VideoRenderThread() {

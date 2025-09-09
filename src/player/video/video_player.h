@@ -63,8 +63,7 @@ class VideoPlayer {
    * @param config 视频配置
    * @return 成功返回true
    */
-  bool Init(std::shared_ptr<Renderer> renderer,
-            const VideoConfig& config = VideoConfig{});
+  bool Init(Renderer* renderer, const VideoConfig& config = VideoConfig{});
 
   /**
    * @brief 开始播放
@@ -180,7 +179,7 @@ class VideoPlayer {
 
  private:
   // 渲染器和同步控制器
-  std::shared_ptr<Renderer> renderer_;
+  Renderer* renderer_;
   AVSyncController* av_sync_controller_;  // 外部管理的同步控制器
 
   // 配置

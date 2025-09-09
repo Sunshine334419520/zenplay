@@ -7,6 +7,7 @@
 #include <queue>
 #include <thread>
 
+#include "../sync/av_sync_controller.h"
 #include "audio_output.h"
 
 extern "C" {
@@ -23,6 +24,7 @@ namespace zenplay {
  *
  * 负责从音频帧队列中取出解码后的音频数据，
  * 进行格式转换和重采样，然后通过AudioOutput播放
+ * 同时作为音视频同步的主时钟源
  */
 class AudioPlayer {
  public:
@@ -37,7 +39,7 @@ class AudioPlayer {
     int buffer_size = 1024;                            // 缓冲区大小
   };
 
-  AudioPlayer();
+  AudioPlayer(AVSyncController* sync_controller = nullptr);
   ~AudioPlayer();
 
   /**
@@ -151,6 +153,14 @@ class AudioPlayer {
   // 音频配置
   AudioConfig config_;
   AudioOutput::AudioSpec output_spec_;
+
+  // 音视频同步控制器
+  AVSyncController* sync_controller_;
+
+  // PTS跟踪
+  double base_audio_pts_;
+  size_t total_samples_played_;
+  std::mutex pts_mutex_;
 
   // 重采样器
   SwrContext* swr_context_;
