@@ -59,6 +59,7 @@ class MainWindow : public QMainWindow {
   void updateControlBarState();
   void setMediaFile(const QString& filePath);
   void updateProgressDisplay(int currentTime, int totalTime);
+  void resetProgress();
   QString formatTime(int seconds) const;
 
  private:

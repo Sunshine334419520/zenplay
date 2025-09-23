@@ -1,7 +1,12 @@
 #include "player/zen_player.h"
 
+#include <chrono>
+#include <future>
+#include <thread>
+
 #include "player/codec/audio_decoder.h"
 #include "player/codec/video_decoder.h"
+#include "player/common/log_manager.h"
 #include "player/demuxer/demuxer.h"
 #include "player/playback_controller.h"
 #include "player/video/render/renderer.h"
@@ -19,11 +24,15 @@ ZenPlayer::~ZenPlayer() {
 }
 
 bool ZenPlayer::Open(const std::string& url) {
+  MODULE_INFO(LOG_MODULE_PLAYER, "Opening URL: {}", url.c_str());
+
   if (is_opened_) {
     Close();
   }
 
   if (!demuxer_->Open(url)) {
+    MODULE_ERROR(LOG_MODULE_PLAYER, "Failed to open demuxer for URL: %s",
+                 url.c_str());
     return false;  // Failed to open demuxer
   }
 
@@ -33,6 +42,7 @@ bool ZenPlayer::Open(const std::string& url) {
   if (video_stream) {
     if (!video_decoder_->Open(video_stream->codecpar)) {
       demuxer_->Close();
+      MODULE_ERROR(LOG_MODULE_PLAYER, "Failed to open video decoder");
       return false;  // Failed to open video decoder
     }
   }
@@ -44,6 +54,7 @@ bool ZenPlayer::Open(const std::string& url) {
     if (!audio_decoder_->Open(audio_stream->codecpar)) {
       video_decoder_->Close();
       demuxer_->Close();
+      MODULE_ERROR(LOG_MODULE_PLAYER, "Failed to open audio decoder");
       return false;  // Failed to open audio decoder
     }
   }
@@ -60,15 +71,21 @@ bool ZenPlayer::Open(const std::string& url) {
 
 bool ZenPlayer::SetRenderWindow(void* window_handle, int width, int height) {
   if (!is_opened_ || !renderer_) {
+    MODULE_ERROR(LOG_MODULE_PLAYER,
+                 "Player not opened or renderer not available");
     return false;
   }
 
-  // 初始化渲染器与窗口句柄
-  if (!renderer_->Init(window_handle, width, height)) {
-    return false;
-  }
+  MODULE_INFO(LOG_MODULE_PLAYER, "Starting renderer initialization ({}x{})",
+              width, height);
 
-  return true;
+  std::thread init_thread([this, window_handle, width, height]() {
+    renderer_->Init(window_handle, width, height);
+    // 通过回调或信号通知初始化完成
+  });
+  init_thread.detach();  // 分离线程，不等待
+
+  return true;  // 立即返回
 }
 
 void ZenPlayer::Close() {
@@ -165,6 +182,15 @@ int ZenPlayer::GetDuration() const {
     return 0;
   }
   return demuxer_->GetDuration();
+}
+
+int ZenPlayer::GetCurrentPlayTime() const {
+  if (!is_opened_ || !playback_controller_) {
+    return 0;
+  }
+
+  // 从PlaybackController获取当前播放时间
+  return playback_controller_->GetCurrentTime();
 }
 
 }  // namespace zenplay

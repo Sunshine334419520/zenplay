@@ -31,6 +31,8 @@ class ZenPlayer {
   bool Seek(int64_t timestamp, bool backward = false);
 
   int GetDuration() const;
+  int GetCurrentPlayTime()
+      const;  // 获取当前播放时间（秒）- 避免Windows API冲突
 
   // 获取当前状态
   PlayState GetState() const { return state_; }

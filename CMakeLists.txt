@@ -95,11 +95,12 @@ target_include_directories(${PROJECT_NAME} PRIVATE
 )
 
 if (MSVC)
-  find_program(DEPLOYQT_EXECUTABLE NAMES windeployqt)
+    find_program(DEPLOYQT_EXECUTABLE NAMES windeployqt)
     if (DEPLOYQT_EXECUTABLE)
+        # 只在 Release 模式下运行 windeployqt
         add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-        COMMAND ${DEPLOYQT_EXECUTABLE} $<TARGET_FILE:${PROJECT_NAME}>
-        COMMENT "Deploying Qt libraries with windeployqt")
+            COMMAND $<$<CONFIG:Release>:${DEPLOYQT_EXECUTABLE}> $<$<CONFIG:Release>:$<TARGET_FILE:${PROJECT_NAME}>>
+            COMMENT "Deploying Qt libraries (Release mode only)")
     else()
         message(WARNING "windeployqt not found, Qt libraries will not be deployed automatically.")
     endif()

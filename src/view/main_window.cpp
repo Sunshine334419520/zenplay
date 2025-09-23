@@ -8,6 +8,7 @@
 #include <QScreen>
 #include <QUrl>
 #include <QWindow>
+#include <iostream>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -153,9 +154,19 @@ void MainWindow::setupVideoArea() {
 
   connect(videoWidget_, &VideoDisplayWidget::resized,
           [this](int width, int height) {
-            // Notify player about size change if needed
-            if (player_) {
-              // TODO: Handle video widget resize
+            // 通知播放器窗口大小变化
+            if (player_ && player_->IsOpened()) {
+              // 这里可能需要重新设置渲染窗口大小
+              // 或者通知渲染器更新显示区域
+              void* handle = videoWidget_->getNativeHandle();
+              if (handle) {
+                // 只是更新大小，不重新初始化整个渲染器
+                // 如果需要，可以添加Renderer::OnResize方法
+                /*
+                MODULE_DEBUG(LOG_MODULE_UI, "Video widget resized to {}x{}",
+                             width, height);
+                             */
+              }
             }
           });
 
@@ -319,39 +330,54 @@ void MainWindow::setMediaFile(const QString& filePath) {
     return;
   }
 
-  // Stop current playback
+  // Stop current playback and reset progress
   stopPlayback();
+  progressSlider_->setValue(0);
+  timeLabel_->setText("00:00");
 
-  // Try to open the file
-  if (player_->Open(filePath.toStdString())) {
-    currentMediaPath_ = filePath;
+  std::cout << "Opening media file: " << filePath.toStdString() << std::endl;
 
-    // Setup SDL renderer with video widget handle
-    void* handle = videoWidget_->getNativeHandle();
-    if (handle && player_->SetRenderWindow(handle, videoWidget_->width(),
-                                           videoWidget_->height())) {
-      statusLabel_->setText(tr("Media loaded successfully"));
-
-      // Get duration and update UI
-      totalDuration_ = player_->GetDuration();
-      durationLabel_->setText(formatTime(totalDuration_));
-      progressSlider_->setMaximum(totalDuration_);
-
-      updateControlBarState();
-
-      // Show filename in window title
-      QFileInfo fileInfo(filePath);
-      setWindowTitle(tr("ZenPlay - %1").arg(fileInfo.fileName()));
-    } else {
-      statusLabel_->setText(tr("Failed to initialize renderer"));
-      QMessageBox::critical(this, tr("Error"),
-                            tr("Failed to initialize video renderer."));
-    }
-  } else {
+  // 尝试打开媒体文件
+  if (!player_->Open(filePath.toStdString())) {
     statusLabel_->setText(tr("Failed to open media file"));
     QMessageBox::critical(this, tr("Error"),
                           tr("Failed to open media file:\n%1").arg(filePath));
+    updateControlBarState();  // 更新UI状态反映打开失败
+    return;
   }
+
+  currentMediaPath_ = filePath;
+
+  // 设置渲染窗口
+  void* handle = videoWidget_->getNativeHandle();
+  if (!handle || !player_->SetRenderWindow(handle, videoWidget_->width(),
+                                           videoWidget_->height())) {
+    statusLabel_->setText(tr("Failed to initialize renderer"));
+    QMessageBox::critical(this, tr("Error"),
+                          tr("Failed to initialize video renderer."));
+    updateControlBarState();  // 更新UI状态反映渲染器失败
+    return;
+  }
+
+  // 更新UI信息
+  totalDuration_ = player_->GetDuration();
+  durationLabel_->setText(formatTime(totalDuration_));
+  progressSlider_->setMaximum(totalDuration_);
+
+  // 更新窗口标题
+  QFileInfo fileInfo(filePath);
+  setWindowTitle(tr("ZenPlay - %1").arg(fileInfo.fileName()));
+
+  // 自动开始播放
+  if (player_->Play()) {
+    updateTimer_->start();
+    statusLabel_->setText(tr("Playing"));
+  } else {
+    statusLabel_->setText(tr("Media loaded successfully"));
+  }
+
+  // 只在最后统一更新一次控制栏状态
+  updateControlBarState();
 }
 
 void MainWindow::togglePlayPause() {
@@ -359,25 +385,32 @@ void MainWindow::togglePlayPause() {
     return;
   }
 
+  bool success = false;
+  QString statusText;
+
   switch (player_->GetState()) {
     case ZenPlayer::PlayState::kStopped:
-      if (player_->Play()) {
+    case ZenPlayer::PlayState::kPaused:
+      success = player_->Play();
+      if (success) {
         updateTimer_->start();
-        statusLabel_->setText(tr("Playing"));
+        statusText = tr("Playing");
       }
       break;
     case ZenPlayer::PlayState::kPlaying:
-      if (player_->Pause()) {
+      success = player_->Pause();
+      if (success) {
         updateTimer_->stop();
-        statusLabel_->setText(tr("Paused"));
+        statusText = tr("Paused");
       }
       break;
-    case ZenPlayer::PlayState::kPaused:
-      if (player_->Play()) {
-        updateTimer_->start();
-        statusLabel_->setText(tr("Playing"));
-      }
-      break;
+  }
+
+  if (success && !statusText.isEmpty()) {
+    statusLabel_->setText(statusText);
+  } else if (!success) {
+    // 播放/暂停失败时的处理
+    statusLabel_->setText(tr("Operation failed"));
   }
 
   updateControlBarState();
@@ -445,12 +478,17 @@ void MainWindow::updatePlaybackProgress() {
     return;
   }
 
-  // TODO: Get actual playback position from player
-  // For now, just simulate progress
-  static int currentTime = 0;
+  // TODO: 需要从 ZenPlayer 获取实际的播放位置
+  // 目前 ZenPlayer 还没有 GetCurrentTime() 方法
+  // 暂时使用简单的时间递增模拟
 
   if (player_->GetState() == ZenPlayer::PlayState::kPlaying) {
-    currentTime++;
+    // 获取当前进度条值作为当前时间
+    int currentTime = progressSlider_->value();
+
+    // 每100ms更新一次，所以递增0.1秒
+    currentTime += 1;  // 这里应该根据实际播放时间来更新
+
     if (currentTime <= totalDuration_) {
       updateProgressDisplay(currentTime, totalDuration_);
     }
@@ -458,14 +496,14 @@ void MainWindow::updatePlaybackProgress() {
 }
 
 void MainWindow::updateProgressDisplay(int currentTime, int totalTime) {
-  if (!isDraggingProgress_) {
+  if (!isDraggingProgress_ && progressSlider_ && timeLabel_) {
     progressSlider_->setValue(currentTime);
     timeLabel_->setText(formatTime(currentTime));
   }
 }
 
 void MainWindow::updateControlBarState() {
-  if (!player_) {
+  if (!player_ || !playPauseBtn_ || !stopBtn_ || !progressSlider_) {
     return;
   }
 
@@ -512,8 +550,13 @@ void MainWindow::resizeEvent(QResizeEvent* event) {
   QMainWindow::resizeEvent(event);
 
   // Update SDL renderer size when window resizes
-  if (player_ && videoWidget_) {
-    // TODO: Notify renderer about size change
+  if (player_ && videoWidget_ && player_->IsOpened()) {
+    // 通知渲染器窗口大小变化
+    void* handle = videoWidget_->getNativeHandle();
+    if (handle) {
+      // TODO: 添加 ZenPlayer::OnWindowResize 方法
+      // player_->OnWindowResize(videoWidget_->width(), videoWidget_->height());
+    }
   }
 }
 

@@ -154,7 +154,7 @@ bool AudioPlayer::PushFrame(AVFramePtr frame) {
   if (base_audio_pts_ == 0.0 && frame->pts != AV_NOPTS_VALUE) {
     std::lock_guard<std::mutex> pts_lock(pts_mutex_);
     if (base_audio_pts_ == 0.0) {  // 双重检查
-      base_audio_pts_ = frame->pts;
+      base_audio_pts_ = static_cast<double>(frame->pts);
       total_samples_played_ = 0;
     }
   }
@@ -299,9 +299,9 @@ bool AudioPlayer::InitializeResampler(const AVFrame* frame) {
   }
 
   // 分配输出缓冲区
-  max_resampled_samples_ =
+  max_resampled_samples_ = static_cast<int>(
       av_rescale_rnd(config_.buffer_size, config_.target_sample_rate,
-                     src_sample_rate_, AV_ROUND_UP);
+                     src_sample_rate_, AV_ROUND_UP));
 
   int ret = av_samples_alloc_array_and_samples(
       &resampled_data_, &resampled_data_size_, config_.target_channels,
@@ -354,7 +354,8 @@ int AudioPlayer::FillAudioBuffer(uint8_t* buffer, int buffer_size) {
   while (bytes_filled < buffer_size) {
     // 首先尝试从内部缓冲区读取
     if (buffer_read_pos_ < internal_buffer_.size()) {
-      int available_bytes = internal_buffer_.size() - buffer_read_pos_;
+      int available_bytes =
+          static_cast<int>(internal_buffer_.size() - buffer_read_pos_);
       int bytes_to_copy = std::min(buffer_size - bytes_filled, available_bytes);
 
       memcpy(buffer + bytes_filled, internal_buffer_.data() + buffer_read_pos_,

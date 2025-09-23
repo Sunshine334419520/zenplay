@@ -1,6 +1,7 @@
 #include "player/demuxer/demuxer.h"
 
 #include "demuxer.h"
+#include "player/common/log_manager.h"
 
 namespace zenplay {
 
@@ -42,7 +43,6 @@ bool Demuxer::Open(const std::string& url) {
   }
 
   probeStreams();
-  int32_t test = format_context_->duration;
   return true;
 }
 
@@ -144,6 +144,9 @@ void Demuxer::probeStreams() {
       }
     }
   }
+
+  MODULE_INFO(LOG_MODULE_DEMUXER, "Found {} video streams, {} audio streams",
+              video_streams_.size(), audio_streams_.size());
 }
 
 }  // namespace zenplay

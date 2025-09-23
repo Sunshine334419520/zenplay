@@ -157,6 +157,12 @@ class PlaybackController {
   bool IsPlaying() const { return is_playing_.load(); }
   bool IsPaused() const { return is_paused_.load(); }
 
+  /**
+   * @brief 获取当前播放时间
+   * @return 当前播放时间（秒）
+   */
+  int GetCurrentTime() const;
+
  private:
   // 解封装任务 - 在专门的工作线程执行
   void DemuxTask();

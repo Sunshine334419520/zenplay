@@ -7,6 +7,7 @@ extern "C" {
 }
 
 #include "../../../common/log_manager.h"
+#include "sdl_manager.h"
 
 #ifdef _WIN32
 #include <windows.h>
@@ -60,12 +61,20 @@ bool SDLRenderer::Init(void* window_handle, int width, int height) {
 
 bool SDLRenderer::RenderFrame(AVFrame* frame) {
   if (!renderer_initialized_ || !frame) {
+    MODULE_ERROR(LOG_MODULE_RENDERER, "Cannot render: initialized={}, frame={}",
+                 renderer_initialized_, frame ? "valid" : "null");
     return false;
   }
+
+  MODULE_INFO(LOG_MODULE_RENDERER, "Rendering frame: {}x{}, format={}",
+              frame->width, frame->height, frame->format);
 
   // Create or update texture if frame properties changed
   if (frame_width_ != frame->width || frame_height_ != frame->height ||
       src_pixel_format_ != static_cast<AVPixelFormat>(frame->format)) {
+    MODULE_INFO(LOG_MODULE_RENDERER,
+                "Frame properties changed, recreating texture: {}x{} -> {}x{}",
+                frame_width_, frame_height_, frame->width, frame->height);
     if (!CreateTexture(frame->width, frame->height, frame->format)) {
       MODULE_ERROR(LOG_MODULE_RENDERER, "Failed to create texture for frame");
       return false;
@@ -82,6 +91,8 @@ bool SDLRenderer::RenderFrame(AVFrame* frame) {
 
   // Calculate display rectangle maintaining aspect ratio
   SDL_Rect display_rect = CalculateDisplayRect(frame_width_, frame_height_);
+  MODULE_INFO(LOG_MODULE_RENDERER, "Display rect: {}x{} at ({},{})",
+              display_rect.w, display_rect.h, display_rect.x, display_rect.y);
 
   // Copy texture to renderer
   if (SDL_RenderCopy(renderer_, texture_, nullptr, &display_rect) != 0) {
@@ -92,6 +103,7 @@ bool SDLRenderer::RenderFrame(AVFrame* frame) {
 
   // Present the frame
   Present();
+  MODULE_INFO(LOG_MODULE_RENDERER, "Frame presented successfully");
 
   return true;
 }
@@ -140,7 +152,10 @@ void SDLRenderer::Cleanup() {
     window_ = nullptr;
   }
 
-  renderer_initialized_ = false;
+  if (renderer_initialized_) {
+    SDLManager::Instance().Shutdown();
+    renderer_initialized_ = false;
+  }
 }
 
 const char* SDLRenderer::GetRendererName() const {
@@ -148,12 +163,7 @@ const char* SDLRenderer::GetRendererName() const {
 }
 
 bool SDLRenderer::InitSDL() {
-  if (SDL_Init(SDL_INIT_VIDEO) < 0) {
-    MODULE_ERROR(LOG_MODULE_RENDERER, "Failed to initialize SDL: {}",
-                 SDL_GetError());
-    return false;
-  }
-  return true;
+  return SDLManager::Instance().Initialize();
 }
 
 bool SDLRenderer::CreateRenderer(void* window_handle) {
@@ -216,18 +226,23 @@ bool SDLRenderer::CreateTexture(int width, int height, int pixel_format) {
   switch (src_pixel_format_) {
     case AV_PIX_FMT_YUV420P:
       sdl_format = SDL_PIXELFORMAT_IYUV;
+      dst_pixel_format_ = AV_PIX_FMT_YUV420P;  // texture expects I420/IYUV
       break;
     case AV_PIX_FMT_NV12:
       sdl_format = SDL_PIXELFORMAT_NV12;
+      dst_pixel_format_ = AV_PIX_FMT_NV12;  // texture expects NV12
       break;
     case AV_PIX_FMT_NV21:
       sdl_format = SDL_PIXELFORMAT_NV21;
+      dst_pixel_format_ = AV_PIX_FMT_NV21;  // texture expects NV21
       break;
     case AV_PIX_FMT_RGB24:
       sdl_format = SDL_PIXELFORMAT_RGB24;
+      dst_pixel_format_ = AV_PIX_FMT_RGB24;  // texture expects RGB24
       break;
     case AV_PIX_FMT_BGR24:
       sdl_format = SDL_PIXELFORMAT_BGR24;
+      dst_pixel_format_ = AV_PIX_FMT_BGR24;  // texture expects BGR24
       break;
     default:
       // For unsupported formats, convert to YUV420P
@@ -253,18 +268,29 @@ bool SDLRenderer::UpdateTexture(AVFrame* frame) {
   }
 
   // If pixel format conversion is needed
-  if (src_pixel_format_ != dst_pixel_format_) {
+  AVPixelFormat frame_fmt = static_cast<AVPixelFormat>(frame->format);
+  if (frame_fmt != dst_pixel_format_) {
     return UpdateTextureWithConversion(frame);
   }
 
   // Direct texture update for supported formats
-  if (src_pixel_format_ == AV_PIX_FMT_YUV420P) {
+  if (dst_pixel_format_ == AV_PIX_FMT_YUV420P) {
     // YUV420P format - update planes separately
     if (SDL_UpdateYUVTexture(texture_, nullptr, frame->data[0],
                              frame->linesize[0], frame->data[1],
                              frame->linesize[1], frame->data[2],
                              frame->linesize[2]) != 0) {
       MODULE_ERROR(LOG_MODULE_RENDERER, "Failed to update YUV texture: {}",
+                   SDL_GetError());
+      return false;
+    }
+  } else if (dst_pixel_format_ == AV_PIX_FMT_NV12 ||
+             dst_pixel_format_ == AV_PIX_FMT_NV21) {
+    // NV12/NV21 - use NV texture update (two planes: Y and interleaved UV)
+    if (SDL_UpdateNVTexture(texture_, nullptr, frame->data[0],
+                            frame->linesize[0], frame->data[1],
+                            frame->linesize[1]) != 0) {
+      MODULE_ERROR(LOG_MODULE_RENDERER, "Failed to update NV texture: {}",
                    SDL_GetError());
       return false;
     }

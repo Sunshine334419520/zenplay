@@ -34,6 +34,9 @@ PlaybackController::PlaybackController(Demuxer* demuxer,
 
   // 初始化视频播放器 (如果有视频流)
   if (video_decoder_ && video_decoder_->opened()) {
+    MODULE_INFO(LOG_MODULE_PLAYER,
+                "Video decoder is opened, creating VideoPlayer");
+
     // 创建VideoPlayer并传递AVSyncController
     video_player_ = std::make_unique<VideoPlayer>(av_sync_controller_.get());
 
@@ -41,7 +44,11 @@ PlaybackController::PlaybackController(Demuxer* demuxer,
     if (!video_player_->Init(renderer_)) {
       MODULE_ERROR(LOG_MODULE_PLAYER, "Failed to initialize video player");
       video_player_.reset();
+    } else {
+      MODULE_INFO(LOG_MODULE_PLAYER, "VideoPlayer initialized successfully");
     }
+  } else {
+    MODULE_WARN(LOG_MODULE_PLAYER, "Video decoder not opened or not available");
   }
 }
 
@@ -83,7 +90,14 @@ bool PlaybackController::Start() {
 
   // 启动视频播放器
   if (video_player_) {
-    video_player_->Start();
+    MODULE_INFO(LOG_MODULE_PLAYER, "Starting VideoPlayer");
+    if (!video_player_->Start()) {
+      MODULE_ERROR(LOG_MODULE_PLAYER, "Failed to start VideoPlayer");
+    } else {
+      MODULE_INFO(LOG_MODULE_PLAYER, "VideoPlayer started successfully");
+    }
+  } else {
+    MODULE_WARN(LOG_MODULE_PLAYER, "VideoPlayer not available for start");
   }
 
   // 启动同步控制任务
@@ -156,6 +170,7 @@ bool zenplay::PlaybackController::Seek(int64_t timestamp_ms) {
 }
 
 void PlaybackController::DemuxTask() {
+  MODULE_INFO(LOG_MODULE_PLAYER, "Demux thread started");
   if (!demuxer_) {
     return;
   }
@@ -180,6 +195,8 @@ void PlaybackController::DemuxTask() {
       break;
     }
 
+    // MODULE_INFO(LOG_MODULE_PLAYER, "Demuxing packet...");
+
     if (!demuxer_->ReadPacket(&packet)) {
       // 发送EOF信号
       if (video_decoder_ && video_decoder_->opened()) {
@@ -192,12 +209,19 @@ void PlaybackController::DemuxTask() {
       break;
     }
 
+    MODULE_DEBUG(LOG_MODULE_PLAYER, "Demuxed packet, size: {}, pts: {}",
+                 packet->size, packet->pts);
+
     // 分发packet到对应的解码队列
     if (packet->stream_index == demuxer_->active_video_stream_index() &&
         video_decoder_ && video_decoder_->opened()) {
+      MODULE_DEBUG(LOG_MODULE_PLAYER, "Demuxed video packet, size: {}, pts: {}",
+                   packet->size, packet->pts);
       video_packet_queue_.Push(packet);
     } else if (packet->stream_index == demuxer_->active_audio_stream_index() &&
                audio_decoder_ && audio_decoder_->opened()) {
+      MODULE_DEBUG(LOG_MODULE_PLAYER, "Demuxed audio packet, size: {}, pts: {}",
+                   packet->size, packet->pts);
       audio_packet_queue_.Push(packet);
     } else {
       av_packet_free(&packet);
@@ -258,6 +282,8 @@ void PlaybackController::VideoDecodeTask() {
 
     // 解码
     if (video_decoder_->Decode(packet, &frames)) {
+      MODULE_INFO(LOG_MODULE_PLAYER, "Video decoder produced {} frames",
+                  frames.size());
       for (auto& frame : frames) {
         if (video_player_) {
           // 创建时间戳信息
@@ -272,6 +298,7 @@ void PlaybackController::VideoDecodeTask() {
               timestamp.time_base = stream->time_base;
             }
           }
+
           video_player_->PushFrame(std::move(frame), timestamp);
         }
       }
@@ -402,6 +429,18 @@ PlaybackController::PlaybackStats PlaybackController::GetStats() const {
   stats.video_queue_size = video_player_ ? video_player_->GetQueueSize() : 0;
 
   return stats;
+}
+
+int PlaybackController::GetCurrentTime() const {
+  if (!av_sync_controller_) {
+    return 0;
+  }
+
+  auto current_time = std::chrono::steady_clock::now();
+  double master_clock_ms = av_sync_controller_->GetMasterClock(current_time);
+
+  // 转换为秒并返回
+  return static_cast<int>(master_clock_ms / 1000.0);
 }
 
 }  // namespace zenplay

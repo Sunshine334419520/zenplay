@@ -32,8 +32,10 @@ bool VideoPlayer::Init(Renderer* renderer, const VideoConfig& config) {
   last_stats_update_ = std::chrono::steady_clock::now();
 
   MODULE_INFO(LOG_MODULE_VIDEO,
-              "VideoPlayer initialized: target_fps={}, max_queue_size={}",
-              config_.target_fps, config_.max_frame_queue_size);
+              "VideoPlayer initialized: target_fps={}, max_queue_size={}, "
+              "drop_frames={}",
+              config_.target_fps, config_.max_frame_queue_size,
+              config_.drop_frames);
 
   return true;
 }
@@ -197,11 +199,14 @@ void VideoPlayer::VideoRenderThread() {
       std::this_thread::sleep_until(target_display_time);
     }
 
+    MODULE_INFO(LOG_MODULE_VIDEO, "Rendering frame with PTS {} ms",
+                video_frame->timestamp.ToMilliseconds());
+
     // 渲染帧
     auto render_start = std::chrono::steady_clock::now();
     if (renderer_) {
+      // RenderFrame is expected to handle presenting internally when needed
       renderer_->RenderFrame(video_frame->frame.get());
-      renderer_->Present();
     }
     auto render_end = std::chrono::steady_clock::now();
 
@@ -229,6 +234,14 @@ std::chrono::steady_clock::time_point VideoPlayer::CalculateFrameDisplayTime(
   double video_pts_ms = frame_info.timestamp.ToMilliseconds();
   auto current_time = std::chrono::steady_clock::now();
 
+  // 检查时间戳是否有效
+  if (video_pts_ms < 0) {
+    // 无效时间戳：使用接收时间 + 帧间隔
+    double frame_duration_ms = 1000.0 / config_.target_fps;
+    return frame_info.receive_time +
+           std::chrono::milliseconds(static_cast<int64_t>(frame_duration_ms));
+  }
+
   // 如果有音视频同步控制器，使用它来计算显示时间
   if (av_sync_controller_) {
     // 更新视频时钟
@@ -237,20 +250,24 @@ std::chrono::steady_clock::time_point VideoPlayer::CalculateFrameDisplayTime(
     // 获取主时钟（通常是音频时钟）
     double master_clock_ms = av_sync_controller_->GetMasterClock(current_time);
 
-    // 计算同步偏移
+    // 计算同步偏移 - 修复：应该基于播放开始时间计算
     double sync_offset_ms = video_pts_ms - master_clock_ms;
 
     // 限制延迟范围 [-100ms, +100ms]
     sync_offset_ms = std::clamp(sync_offset_ms, -100.0, 100.0);
 
-    return current_time +
-           std::chrono::milliseconds(static_cast<int64_t>(sync_offset_ms));
+    // 修复关键Bug：正确的时间计算
+    // 不是 current_time + offset，而是 play_start_time + video_pts +
+    // sync_adjustment
+    auto target_time = play_start_time_ +
+                       std::chrono::milliseconds(
+                           static_cast<int64_t>(video_pts_ms + sync_offset_ms));
+    return target_time;
   } else {
-    // 仅视频播放模式：根据帧率计算显示时间
-    double frame_duration_ms = 1000.0 / config_.target_fps;
+    // 仅视频播放模式：基于播放开始时间 + PTS
     auto target_time =
-        frame_info.receive_time +
-        std::chrono::milliseconds(static_cast<int64_t>(frame_duration_ms));
+        play_start_time_ +
+        std::chrono::milliseconds(static_cast<int64_t>(video_pts_ms));
     return target_time;
   }
 }
@@ -258,6 +275,12 @@ std::chrono::steady_clock::time_point VideoPlayer::CalculateFrameDisplayTime(
 bool VideoPlayer::ShouldDropFrame(
     const VideoFrame& frame_info,
     std::chrono::steady_clock::time_point current_time) {
+  // 对于无效时间戳的帧，永远不要丢弃
+  double video_pts_ms = frame_info.timestamp.ToMilliseconds();
+  if (video_pts_ms < 0) {
+    return false;
+  }
+
   // 计算帧的延迟
   auto target_display_time = CalculateFrameDisplayTime(frame_info);
   auto delay = std::chrono::duration<double, std::milli>(current_time -
@@ -266,7 +289,16 @@ bool VideoPlayer::ShouldDropFrame(
 
   // 如果延迟超过两帧时间，考虑丢帧
   double frame_duration_ms = 1000.0 / config_.target_fps;
-  return delay > (frame_duration_ms * 2.0);
+  bool should_drop = delay > (frame_duration_ms * 2.0);
+
+  // 添加调试日志
+  if (should_drop) {
+    MODULE_INFO(LOG_MODULE_VIDEO,
+                "Frame drop: PTS={:.2f}ms, delay={:.2f}ms, threshold={:.2f}ms",
+                video_pts_ms, delay, frame_duration_ms * 2.0);
+  }
+
+  return should_drop;
 }
 
 double VideoPlayer::CalculateAVSync(double video_pts_ms) {

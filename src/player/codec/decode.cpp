@@ -1,5 +1,7 @@
 #include "player/codec/decode.h"
 
+#include "player/common/log_manager.h"
+
 namespace zenplay {
 
 Decoder::Decoder() {}
@@ -13,23 +15,27 @@ bool Decoder::Open(AVCodecParameters* codec_params, AVDictionary** options) {
 
   const AVCodec* codec = avcodec_find_decoder(codec_params->codec_id);
   if (!codec) {
+    MODULE_ERROR(LOG_MODULE_DECODER, "Codec not found");
     return false;  // Codec not found
   }
 
   AVCodecContext* raw = avcodec_alloc_context3(codec);
-  if (!codec_context_) {
+  if (!raw) {
+    MODULE_ERROR(LOG_MODULE_DECODER, "Failed to allocate codec context");
     return false;  // Failed to allocate codec context
   }
   codec_context_.reset(raw);
 
   int ret = avcodec_parameters_to_context(codec_context_.get(), codec_params);
   if (ret < 0) {
+    MODULE_ERROR(LOG_MODULE_DECODER, "Failed to copy codec parameters");
     codec_context_.reset();  // Reset the context on failure
     return false;            // Failed to copy codec parameters
   }
 
   ret = avcodec_open2(codec_context_.get(), codec, options);
   if (ret < 0) {
+    MODULE_ERROR(LOG_MODULE_DECODER, "Failed to open codec");
     codec_context_.reset();  // Reset the context on failure
     return false;            // Failed to open codec
   }

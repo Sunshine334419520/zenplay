@@ -34,7 +34,7 @@ class VideoPlayer {
     double target_fps = 30.0;       // 目标帧率
     bool vsync_enabled = true;      // 垂直同步
     int max_frame_queue_size = 30;  // 最大帧队列大小
-    bool drop_frames = true;        // 是否允许丢帧以维持同步
+    bool drop_frames = false;       // 是否允许丢帧以维持同步
   };
 
   /**
@@ -47,8 +47,8 @@ class VideoPlayer {
 
     // 转换为毫秒
     double ToMilliseconds() const {
-      if (pts == AV_NOPTS_VALUE) {
-        return 0.0;
+      if (pts == AV_NOPTS_VALUE || pts < 0) {
+        return -1.0;  // 返回-1表示无效时间戳，而不是0.0
       }
       return pts * av_q2d(time_base) * 1000.0;
     }
