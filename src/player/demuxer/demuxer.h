@@ -26,7 +26,7 @@ class Demuxer {
   bool Seek(int64_t timestamp, bool backward = false);
 
   AVDictionary* GetMetadata() const;
-  int GetDuration() const;
+  int64_t GetDuration() const;  // 返回总时长（毫秒）
 
   int active_video_stream_index() const { return active_video_stream_index_; }
   int active_audio_stream_index() const { return active_audio_stream_index_; }

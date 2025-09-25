@@ -333,7 +333,7 @@ void MainWindow::setMediaFile(const QString& filePath) {
   // Stop current playback and reset progress
   stopPlayback();
   progressSlider_->setValue(0);
-  timeLabel_->setText("00:00");
+  timeLabel_->setText(formatTime(0));  // 使用formatTime格式化0毫秒
 
   std::cout << "Opening media file: " << filePath.toStdString() << std::endl;
 
@@ -360,9 +360,10 @@ void MainWindow::setMediaFile(const QString& filePath) {
   }
 
   // 更新UI信息
-  totalDuration_ = player_->GetDuration();
+  totalDuration_ = player_->GetDuration();  // 现在返回毫秒
   durationLabel_->setText(formatTime(totalDuration_));
-  progressSlider_->setMaximum(totalDuration_);
+  // 进度条使用秒为单位以避免int溢出
+  progressSlider_->setMaximum(static_cast<int>(totalDuration_ / 1000));
 
   // 更新窗口标题
   QFileInfo fileInfo(filePath);
@@ -427,7 +428,7 @@ void MainWindow::stopPlayback() {
 
     // Reset progress
     progressSlider_->setValue(0);
-    timeLabel_->setText("00:00");
+    timeLabel_->setText(formatTime(0));  // 使用formatTime格式化0毫秒
 
     updateControlBarState();
   }
@@ -455,8 +456,9 @@ void MainWindow::onProgressSliderValueChanged(int value) {
     return;
   }
 
-  // Update time label while dragging
-  timeLabel_->setText(formatTime(value));
+  // Update time label while dragging - value是秒，需要转换为毫秒显示
+  int64_t timeMs = static_cast<int64_t>(value) * 1000;
+  timeLabel_->setText(formatTime(timeMs));
 }
 
 void MainWindow::onVolumeSliderValueChanged(int value) {
@@ -478,27 +480,39 @@ void MainWindow::updatePlaybackProgress() {
     return;
   }
 
-  // TODO: 需要从 ZenPlayer 获取实际的播放位置
-  // 目前 ZenPlayer 还没有 GetCurrentTime() 方法
-  // 暂时使用简单的时间递增模拟
-
   if (player_->GetState() == ZenPlayer::PlayState::kPlaying) {
-    // 获取当前进度条值作为当前时间
-    int currentTime = progressSlider_->value();
+    // 获取真实播放时间（毫秒）
+    int64_t currentTimeMs = player_->GetCurrentPlayTime();
 
-    // 每100ms更新一次，所以递增0.1秒
-    currentTime += 1;  // 这里应该根据实际播放时间来更新
+    // 如果GetCurrentPlayTime()还未实现或返回0，使用fallback逻辑
+    if (currentTimeMs == 0) {
+      // Fallback: 使用进度条当前值（秒）转换为毫秒，然后模拟递增
+      int currentSeconds = progressSlider_->value();
 
-    if (currentTime <= totalDuration_) {
-      updateProgressDisplay(currentTime, totalDuration_);
+      // 修复Bug：定时器每100ms更新一次，所以应该递增100ms
+      static int updateCount = 0;
+      updateCount++;
+      if (updateCount >= 10) {  // 10 * 100ms = 1秒
+        currentSeconds += 1;
+        updateCount = 0;
+      }
+
+      currentTimeMs = static_cast<int64_t>(currentSeconds) * 1000;
+    }
+
+    if (currentTimeMs <= totalDuration_) {
+      updateProgressDisplay(currentTimeMs, totalDuration_);
     }
   }
 }
 
-void MainWindow::updateProgressDisplay(int currentTime, int totalTime) {
+void MainWindow::updateProgressDisplay(int64_t currentTimeMs,
+                                       int64_t totalTimeMs) {
   if (!isDraggingProgress_ && progressSlider_ && timeLabel_) {
-    progressSlider_->setValue(currentTime);
-    timeLabel_->setText(formatTime(currentTime));
+    // 进度条使用秒为单位以避免溢出
+    int currentSeconds = static_cast<int>(currentTimeMs / 1000);
+    progressSlider_->setValue(currentSeconds);
+    timeLabel_->setText(formatTime(currentTimeMs));
   }
 }
 
@@ -525,20 +539,25 @@ void MainWindow::updateControlBarState() {
   progressSlider_->setEnabled(hasMedia);
 }
 
-QString MainWindow::formatTime(int seconds) const {
-  int hours = seconds / 3600;
-  int minutes = (seconds % 3600) / 60;
-  int secs = seconds % 60;
+QString MainWindow::formatTime(int64_t milliseconds) const {
+  int64_t totalMs = milliseconds;
+  int ms = totalMs % 1000;
+  int totalSeconds = totalMs / 1000;
+  int hours = totalSeconds / 3600;
+  int minutes = (totalSeconds % 3600) / 60;
+  int secs = totalSeconds % 60;
 
   if (hours > 0) {
-    return QString("%1:%2:%3")
+    return QString("%1:%2:%3.%4")
         .arg(hours)
         .arg(minutes, 2, 10, QChar('0'))
-        .arg(secs, 2, 10, QChar('0'));
+        .arg(secs, 2, 10, QChar('0'))
+        .arg(ms, 3, 10, QChar('0'));
   } else {
-    return QString("%1:%2")
+    return QString("%1:%2.%3")
         .arg(minutes, 2, 10, QChar('0'))
-        .arg(secs, 2, 10, QChar('0'));
+        .arg(secs, 2, 10, QChar('0'))
+        .arg(ms, 3, 10, QChar('0'));
   }
 }
 

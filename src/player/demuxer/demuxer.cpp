@@ -110,12 +110,12 @@ AVDictionary* Demuxer::GetMetadata() const {
   return format_context_->metadata;  // Return the metadata dictionary
 }
 
-int Demuxer::GetDuration() const {
+int64_t Demuxer::GetDuration() const {
   if (!format_context_) {
     return 0;  // Not opened
   }
-  return static_cast<int>(format_context_->duration /
-                          AV_TIME_BASE);  // Duration in seconds
+  // 返回毫秒：FFmpeg的duration是微秒，AV_TIME_BASE=1000000
+  return static_cast<int64_t>(format_context_->duration / 1000);  // 转换为毫秒
 }
 
 AVStream* Demuxer::findStreamByIndex(int index) const {

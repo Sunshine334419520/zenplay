@@ -199,8 +199,8 @@ void VideoPlayer::VideoRenderThread() {
       std::this_thread::sleep_until(target_display_time);
     }
 
-    MODULE_INFO(LOG_MODULE_VIDEO, "Rendering frame with PTS {} ms",
-                video_frame->timestamp.ToMilliseconds());
+    MODULE_DEBUG(LOG_MODULE_VIDEO, "Rendering frame with PTS {} ms",
+                 video_frame->timestamp.ToMilliseconds());
 
     // 渲染帧
     auto render_start = std::chrono::steady_clock::now();

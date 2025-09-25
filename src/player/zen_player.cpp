@@ -177,19 +177,19 @@ bool ZenPlayer::Seek(int64_t timestamp, bool backward) {
   return playback_controller_->Seek(timestamp);
 }
 
-int ZenPlayer::GetDuration() const {
+int64_t ZenPlayer::GetDuration() const {
   if (!is_opened_ || !demuxer_) {
     return 0;
   }
-  return demuxer_->GetDuration();
+  return demuxer_->GetDuration();  // 现在返回毫秒
 }
 
-int ZenPlayer::GetCurrentPlayTime() const {
+int64_t ZenPlayer::GetCurrentPlayTime() const {
   if (!is_opened_ || !playback_controller_) {
     return 0;
   }
 
-  // 从PlaybackController获取当前播放时间
+  // 从PlaybackController获取当前播放时间（毫秒）
   return playback_controller_->GetCurrentTime();
 }
 

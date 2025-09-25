@@ -58,9 +58,9 @@ class MainWindow : public QMainWindow {
   void setupStatusBar();
   void updateControlBarState();
   void setMediaFile(const QString& filePath);
-  void updateProgressDisplay(int currentTime, int totalTime);
+  void updateProgressDisplay(int64_t currentTimeMs, int64_t totalTimeMs);
   void resetProgress();
-  QString formatTime(int seconds) const;
+  QString formatTime(int64_t milliseconds) const;  // 格式化毫秒为 HH:MM:SS.mmm
 
  private:
   // UI Components
@@ -100,7 +100,7 @@ class MainWindow : public QMainWindow {
   bool isDraggingProgress_;
   bool isFullscreen_;
   QString currentMediaPath_;
-  int totalDuration_;
+  int64_t totalDuration_;  // 总时长（毫秒）
 
   // Window properties
   QSize normalSize_;

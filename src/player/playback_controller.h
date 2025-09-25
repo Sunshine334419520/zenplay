@@ -159,9 +159,9 @@ class PlaybackController {
 
   /**
    * @brief 获取当前播放时间
-   * @return 当前播放时间（秒）
+   * @return 当前播放时间（毫秒）
    */
-  int GetCurrentTime() const;
+  int64_t GetCurrentTime() const;
 
  private:
   // 解封装任务 - 在专门的工作线程执行

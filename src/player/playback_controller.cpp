@@ -32,6 +32,10 @@ PlaybackController::PlaybackController(Demuxer* demuxer,
     audio_player_.reset();
   }
 
+  if (!audio_decoder_ || !audio_decoder_->opened()) {
+    av_sync_controller_->SetSyncMode(AVSyncController::SyncMode::VIDEO_MASTER);
+  }
+
   // 初始化视频播放器 (如果有视频流)
   if (video_decoder_ && video_decoder_->opened()) {
     MODULE_INFO(LOG_MODULE_PLAYER,
@@ -282,8 +286,6 @@ void PlaybackController::VideoDecodeTask() {
 
     // 解码
     if (video_decoder_->Decode(packet, &frames)) {
-      MODULE_INFO(LOG_MODULE_PLAYER, "Video decoder produced {} frames",
-                  frames.size());
       for (auto& frame : frames) {
         if (video_player_) {
           // 创建时间戳信息
@@ -431,7 +433,7 @@ PlaybackController::PlaybackStats PlaybackController::GetStats() const {
   return stats;
 }
 
-int PlaybackController::GetCurrentTime() const {
+int64_t PlaybackController::GetCurrentTime() const {
   if (!av_sync_controller_) {
     return 0;
   }
@@ -439,8 +441,8 @@ int PlaybackController::GetCurrentTime() const {
   auto current_time = std::chrono::steady_clock::now();
   double master_clock_ms = av_sync_controller_->GetMasterClock(current_time);
 
-  // 转换为秒并返回
-  return static_cast<int>(master_clock_ms / 1000.0);
+  // 直接返回毫秒
+  return static_cast<int64_t>(master_clock_ms);
 }
 
 }  // namespace zenplay
