@@ -47,6 +47,7 @@ file(GLOB PLAYER_AUDIO_OUTPUT_FILES "src/player/audio/*.cpp" "src/player/audio/*
 file(GLOB_RECURSE PLAYER_VIDEO_FILES "src/player/video/*.cpp" "src/player/video/*.h")
 file(GLOB_RECURSE PLAYER_SYNC_FILES "src/player/sync/*.cpp" "src/player/sync/*.h")
 file(GLOB_RECURSE PLAYER_LOADER_FILES "src/player/loader/*.cpp" "src/player/loader/*.h")
+file(GLOB_RECURSE PLAYER_STATS_FILES "src/player/stats/*.cpp" "src/player/stats/*.h")
 file(GLOB_RECURSE VIEW_FILES "src/view/*.cpp" "src/view/*.h" "src/view/*.ui")
 
 if (WIN32)
@@ -66,6 +67,7 @@ list(APPEND SRC_FILES ${PLAYER_AUDIO_OUTPUT_FILES})
 list(APPEND SRC_FILES ${PLAYER_VIDEO_FILES})
 list(APPEND SRC_FILES ${PLAYER_SYNC_FILES})
 list(APPEND SRC_FILES ${PLAYER_LOADER_FILES})
+list(APPEND SRC_FILES ${PLAYER_STATS_FILES})
 list(APPEND SRC_FILES ${VIEW_FILES})
 
 # resource files

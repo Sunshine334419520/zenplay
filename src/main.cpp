@@ -7,6 +7,7 @@
 #include "loki/src/main_message_loop_with_not_main_thread.h"
 #include "loki/src/threading/loki_thread.h"
 #include "player/common/log_manager.h"
+#include "player/stats/stats_initialization.h"
 #include "view/main_window.h"
 
 // Loki主消息循环代理
@@ -26,6 +27,10 @@ int main(int argc, char* argv[]) {
   // 初始化日志系统
   if (!zenplay::LogManager::Initialize(zenplay::LogManager::LogLevel::DEBUG)) {
     return -1;
+  }
+
+  if (!zenplay::stats::InitializeStatsSystem()) {
+    ZENPLAY_WARN("Continuing without statistics system");
   }
 
   ZENPLAY_INFO("Starting ZenPlay Media Player v1.0.0");
@@ -81,6 +86,7 @@ int main(int argc, char* argv[]) {
   int result = app.exec();
 
   ZENPLAY_INFO("Application exiting");
+  zenplay::stats::ShutdownStatsSystem();
   zenplay::LogManager::Shutdown();
 
   return result;

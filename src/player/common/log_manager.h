@@ -79,3 +79,4 @@ class LogManager {
 #define LOG_MODULE_DEMUXER "Demuxer"
 #define LOG_MODULE_RENDERER "Renderer"
 #define LOG_MODULE_SYNC "Sync"
+#define LOG_MODULE_STATS "Stats"
