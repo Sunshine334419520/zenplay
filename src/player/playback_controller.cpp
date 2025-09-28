@@ -1,16 +1,20 @@
 #include "player/playback_controller.h"
 
+#include <chrono>
+
 #include "loki/src/bind_util.h"
 #include "loki/src/location.h"
 #include "player/audio/audio_player.h"
 #include "player/codec/audio_decoder.h"
 #include "player/codec/video_decoder.h"
 #include "player/common/log_manager.h"
+#include "player/common/timer_util.h"
 #include "player/demuxer/demuxer.h"
 #include "player/sync/av_sync_controller.h"
 #include "player/video/render/renderer.h"
 #include "player/video/render/renderer_proxy.h"
 #include "player/video/video_player.h"
+#include "player/stats/statistics_manager.h
 
 namespace zenplay {
 
@@ -199,7 +203,8 @@ void PlaybackController::DemuxTask() {
       break;
     }
 
-    // MODULE_INFO(LOG_MODULE_PLAYER, "Demuxing packet...");
+    // 计算一下读取时间
+    TIMER_START(demux_read);
 
     if (!demuxer_->ReadPacket(&packet)) {
       // 发送EOF信号
@@ -215,6 +220,12 @@ void PlaybackController::DemuxTask() {
 
     MODULE_DEBUG(LOG_MODULE_PLAYER, "Demuxed packet, size: {}, pts: {}",
                  packet->size, packet->pts);
+
+    auto demux_time_ms = TIMER_END_MS_INT(demux_read);
+
+    STATS_UPDATE_DEMUX(
+        1, packet->size, demux_time_ms,
+        packet->stream_index == demuxer_->active_video_stream_index());
 
     // 分发packet到对应的解码队列
     if (packet->stream_index == demuxer_->active_video_stream_index() &&
@@ -262,8 +273,8 @@ void PlaybackController::VideoDecodeTask() {
     }
 
     if (!packet) {
-      // EOF - flush decoder
       video_decoder_->Flush(&frames);
+
       for (auto& frame : frames) {
         if (video_player_) {
           // 创建时间戳信息
@@ -284,8 +295,16 @@ void PlaybackController::VideoDecodeTask() {
       break;
     }
 
-    // 解码
-    if (video_decoder_->Decode(packet, &frames)) {
+    // 解码统计
+    TIMER_START(video_decode);
+    bool decode_success = video_decoder_->Decode(packet, &frames);
+    auto decode_time = TIMER_END_MS(video_decode);
+
+    // 更新解码统计
+    STATS_UPDATE_DECODE(true, decode_success, decode_time,
+                        video_packet_queue_.Size());
+
+    if (decode_success) {
       for (auto& frame : frames) {
         if (video_player_) {
           // 创建时间戳信息
@@ -339,8 +358,8 @@ void PlaybackController::AudioDecodeTask() {
     }
 
     if (!packet) {
-      // EOF - flush decoder
       audio_decoder_->Flush(&frames);
+
       for (auto& frame : frames) {
         if (audio_player_) {
           audio_player_->PushFrame(std::move(frame));
@@ -349,8 +368,13 @@ void PlaybackController::AudioDecodeTask() {
       break;
     }
 
-    // 解码
-    if (audio_decoder_->Decode(packet, &frames)) {
+    TIMER_START(audio_decode);
+    bool decode_success = audio_decoder_->Decode(packet, &frames);
+
+    STATS_UPDATE_DECODE(false, decode_success, TIMER_END_MS(audio_decode),
+                        audio_packet_queue_.Size());
+
+    if (decode_success) {
       for (auto& frame : frames) {
         if (audio_player_) {
           audio_player_->PushFrame(std::move(frame));
