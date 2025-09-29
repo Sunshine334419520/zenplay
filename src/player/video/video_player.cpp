@@ -3,7 +3,8 @@
 #include <algorithm>
 #include <cmath>
 
-#include "../common/log_manager.h"
+#include "player/common/log_manager.h"
+#include "player/stats/statistics_manager.h"
 
 namespace zenplay {
 
@@ -11,8 +12,7 @@ VideoPlayer::VideoPlayer(AVSyncController* sync_controller)
     : av_sync_controller_(sync_controller),
       is_playing_(false),
       is_paused_(false),
-      should_stop_(false),
-      frames_since_last_stats_(0) {}
+      should_stop_(false) {}
 
 VideoPlayer::~VideoPlayer() {
   Cleanup();
@@ -26,10 +26,6 @@ bool VideoPlayer::Init(Renderer* renderer, const VideoConfig& config) {
     MODULE_ERROR(LOG_MODULE_VIDEO, "VideoPlayer: Invalid renderer");
     return false;
   }
-
-  // 初始化统计信息
-  stats_ = PlaybackStats{};
-  last_stats_update_ = std::chrono::steady_clock::now();
 
   MODULE_INFO(LOG_MODULE_VIDEO,
               "VideoPlayer initialized: target_fps={}, max_queue_size={}, "
@@ -109,8 +105,8 @@ bool VideoPlayer::PushFrame(AVFramePtr frame, const FrameTimestamp& timestamp) {
     if (config_.drop_frames) {
       // 丢弃最老的帧
       frame_queue_.pop();
-      std::lock_guard<std::mutex> stats_lock(stats_mutex_);
-      stats_.frames_dropped++;
+      // 使用 StatisticsManager 统计丢帧
+      STATS_UPDATE_RENDER(true, false, true, 0.0);
     } else {
       return false;  // 队列满，拒绝新帧
     }
@@ -136,11 +132,6 @@ bool VideoPlayer::IsPlaying() const {
 size_t VideoPlayer::GetQueueSize() const {
   std::lock_guard<std::mutex> lock(frame_queue_mutex_);
   return frame_queue_.size();
-}
-
-VideoPlayer::PlaybackStats VideoPlayer::GetStats() const {
-  std::lock_guard<std::mutex> lock(stats_mutex_);
-  return stats_;
 }
 
 void VideoPlayer::Cleanup() {
@@ -316,31 +307,14 @@ double VideoPlayer::CalculateAVSync(double video_pts_ms) {
 void VideoPlayer::UpdateStats(bool frame_dropped,
                               double render_time_ms,
                               double sync_offset_ms) {
-  std::lock_guard<std::mutex> lock(stats_mutex_);
+  // 使用统一的 StatisticsManager 更新统计
+  STATS_UPDATE_RENDER(true, !frame_dropped, frame_dropped, render_time_ms);
 
-  if (frame_dropped) {
-    stats_.frames_dropped++;
-  } else {
-    stats_.frames_rendered++;
-    stats_.render_time_ms =
-        (stats_.render_time_ms * 0.9) + (render_time_ms * 0.1);  // 滑动平均
-  }
-
-  frames_since_last_stats_++;
-
-  // 更新同步偏移统计
-  stats_.sync_offset_ms = sync_offset_ms;
-
-  // 每秒更新一次FPS统计
-  auto now = std::chrono::steady_clock::now();
-  auto elapsed =
-      std::chrono::duration<double>(now - last_stats_update_).count();
-  if (elapsed >= 1.0) {
-    stats_.average_fps = frames_since_last_stats_ / elapsed;
-
-    last_stats_update_ = now;
-    frames_since_last_stats_ = 0;
-  }
+  // 更新同步统计
+  // if (av_sync_controller_) {
+  //   auto sync_stats = av_sync_controller_->GetSyncStats();
+  //   STATS_UPDATE_SYNC(sync_offset_ms, sync_stats.is_in_sync());
+  // }
 }
 
 }  // namespace zenplay

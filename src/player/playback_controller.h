@@ -86,31 +86,6 @@ class PlaybackController {
   float GetVolume() const;
 
   /**
-   * @brief 获取播放统计信息
-   */
-  struct PlaybackStats {
-    // 音频统计
-    size_t audio_queue_size = 0;
-    float audio_volume = 0.0f;
-
-    // 视频统计
-    size_t video_queue_size = 0;
-    double video_fps = 0.0;
-    int64_t video_frames_rendered = 0;
-    int64_t video_frames_dropped = 0;
-
-    // 同步统计
-    double sync_offset_ms = 0.0;
-    const char* sync_quality = "Unknown";
-    bool is_in_sync = false;
-  };
-  PlaybackStats GetStats() const;
-
-  // 获取播放状态
-  bool IsPlaying() const { return is_playing_.load(); }
-  bool IsPaused() const { return is_paused_.load(); }
-
-  /**
    * @brief 获取当前播放时间
    * @return 当前播放时间（毫秒）
    */

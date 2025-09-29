@@ -441,22 +441,6 @@ void PlaybackController::StopAllThreads() {
   }
 }
 
-PlaybackController::PlaybackStats PlaybackController::GetStats() const {
-  PlaybackStats stats = {};
-
-  if (av_sync_controller_) {
-    auto sync_stats = av_sync_controller_->GetSyncStats();
-    stats.sync_offset_ms = sync_stats.sync_offset_ms;
-    stats.sync_quality = sync_stats.is_in_sync() ? "Good" : "Poor";
-    stats.is_in_sync = sync_stats.is_in_sync();
-  }
-
-  stats.audio_queue_size = audio_player_ ? audio_player_->GetQueueSize() : 0;
-  stats.video_queue_size = video_player_ ? video_player_->GetQueueSize() : 0;
-
-  return stats;
-}
-
 int64_t PlaybackController::GetCurrentTime() const {
   if (!av_sync_controller_) {
     return 0;

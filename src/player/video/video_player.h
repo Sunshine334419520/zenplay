@@ -110,18 +110,6 @@ class VideoPlayer {
   size_t GetQueueSize() const;
 
   /**
-   * @brief 获取播放统计信息
-   */
-  struct PlaybackStats {
-    int64_t frames_rendered = 0;  // 已渲染帧数
-    int64_t frames_dropped = 0;   // 丢弃帧数
-    double average_fps = 0.0;     // 平均帧率
-    double sync_offset_ms = 0.0;  // 音视频同步偏移
-    double render_time_ms = 0.0;  // 平均渲染时间
-  };
-  PlaybackStats GetStats() const;
-
-  /**
    * @brief 清理资源
    */
   void Cleanup();
@@ -202,12 +190,6 @@ class VideoPlayer {
 
   // 播放时间管理
   std::chrono::steady_clock::time_point play_start_time_;  // 播放开始时间
-
-  // 统计信息
-  mutable std::mutex stats_mutex_;
-  PlaybackStats stats_;
-  std::chrono::steady_clock::time_point last_stats_update_;
-  int frames_since_last_stats_;
 };
 
 }  // namespace zenplay
