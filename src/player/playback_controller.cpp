@@ -10,11 +10,11 @@
 #include "player/common/log_manager.h"
 #include "player/common/timer_util.h"
 #include "player/demuxer/demuxer.h"
+#include "player/stats/statistics_manager.h"
 #include "player/sync/av_sync_controller.h"
 #include "player/video/render/renderer.h"
 #include "player/video/render/renderer_proxy.h"
 #include "player/video/video_player.h"
-#include "player/stats/statistics_manager.h
 
 namespace zenplay {
 
