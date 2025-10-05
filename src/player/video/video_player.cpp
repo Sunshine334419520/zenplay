@@ -14,6 +14,19 @@ VideoPlayer::VideoPlayer(AVSyncController* sync_controller)
       is_paused_(false),
       should_stop_(false) {}
 
+double VideoPlayer::GetNormalizedVideoPts(double raw_pts_ms) {
+  if (raw_pts_ms < 0.0) {
+    return raw_pts_ms;
+  }
+
+  if (!first_pts_initialized_) {
+    first_video_pts_ms_ = raw_pts_ms;
+    first_pts_initialized_ = true;
+  }
+
+  return raw_pts_ms - first_video_pts_ms_;
+}
+
 VideoPlayer::~VideoPlayer() {
   Cleanup();
 }
@@ -46,6 +59,13 @@ bool VideoPlayer::Start() {
 
   // 记录播放开始时间
   play_start_time_ = std::chrono::steady_clock::now();
+  first_pts_initialized_ = false;
+  first_video_pts_ms_ = 0.0;
+  {
+    std::lock_guard<std::mutex> lock(pause_mutex_);
+    accumulated_pause_duration_ = std::chrono::steady_clock::duration::zero();
+    pause_start_time_ = play_start_time_;
+  }
 
   // 启动视频渲染线程
   render_thread_ =
@@ -64,6 +84,12 @@ void VideoPlayer::Stop() {
   should_stop_ = true;
   is_playing_ = false;
 
+  if (is_paused_.exchange(false)) {
+    auto stop_time = std::chrono::steady_clock::now();
+    std::lock_guard<std::mutex> lock(pause_mutex_);
+    accumulated_pause_duration_ += stop_time - pause_start_time_;
+  }
+
   // 通知可能在等待的线程
   frame_available_.notify_all();
   pause_cv_.notify_all();
@@ -77,19 +103,43 @@ void VideoPlayer::Stop() {
   // 清空队列
   ClearFrames();
 
+  {
+    std::lock_guard<std::mutex> lock(pause_mutex_);
+    accumulated_pause_duration_ = std::chrono::steady_clock::duration::zero();
+    pause_start_time_ = std::chrono::steady_clock::time_point{};
+  }
+
   MODULE_INFO(LOG_MODULE_VIDEO, "VideoPlayer stopped");
 }
 
 void VideoPlayer::Pause() {
-  is_paused_ = true;
-  MODULE_INFO(LOG_MODULE_VIDEO, "VideoPlayer paused");
+  bool was_paused = is_paused_.exchange(true);
+  if (!was_paused) {
+    std::lock_guard<std::mutex> lock(pause_mutex_);
+    pause_start_time_ = std::chrono::steady_clock::now();
+    MODULE_INFO(LOG_MODULE_VIDEO, "VideoPlayer paused");
+  } else {
+    MODULE_INFO(LOG_MODULE_VIDEO,
+                "VideoPlayer paused (already in pause state)");
+  }
 }
 
 void VideoPlayer::Resume() {
-  is_paused_ = false;
+  bool was_paused = is_paused_.exchange(false);
+  if (was_paused) {
+    auto resume_time = std::chrono::steady_clock::now();
+    {
+      std::lock_guard<std::mutex> lock(pause_mutex_);
+      accumulated_pause_duration_ += resume_time - pause_start_time_;
+    }
+    MODULE_INFO(LOG_MODULE_VIDEO, "VideoPlayer resumed");
+  } else {
+    MODULE_INFO(LOG_MODULE_VIDEO,
+                "VideoPlayer resume called while already playing");
+  }
+
   pause_cv_.notify_all();
   frame_available_.notify_all();
-  MODULE_INFO(LOG_MODULE_VIDEO, "VideoPlayer resumed");
 }
 
 bool VideoPlayer::PushFrame(AVFramePtr frame, const FrameTimestamp& timestamp) {
@@ -99,15 +149,19 @@ bool VideoPlayer::PushFrame(AVFramePtr frame, const FrameTimestamp& timestamp) {
 
   std::lock_guard<std::mutex> lock(frame_queue_mutex_);
 
-  // 检查队列大小，避免内存过度使用
+  // 检查队列大小，避免内存过度使用和延迟积累
   if (frame_queue_.size() >=
       static_cast<size_t>(config_.max_frame_queue_size)) {
     if (config_.drop_frames) {
-      // 丢弃最老的帧
+      // 丢弃最老的帧以保持低延迟
       frame_queue_.pop();
       // 使用 StatisticsManager 统计丢帧
       STATS_UPDATE_RENDER(true, false, true, 0.0);
+      MODULE_DEBUG(LOG_MODULE_VIDEO,
+                   "Dropped old frame, queue was full at {} frames",
+                   config_.max_frame_queue_size);
     } else {
+      MODULE_DEBUG(LOG_MODULE_VIDEO, "Queue full, rejecting frame");
       return false;  // 队列满，拒绝新帧
     }
   }
@@ -123,6 +177,8 @@ void VideoPlayer::ClearFrames() {
   std::lock_guard<std::mutex> lock(frame_queue_mutex_);
   std::queue<std::unique_ptr<VideoFrame>> empty_queue;
   frame_queue_.swap(empty_queue);
+  first_pts_initialized_ = false;
+  first_video_pts_ms_ = 0.0;
 }
 
 bool VideoPlayer::IsPlaying() const {
@@ -190,8 +246,18 @@ void VideoPlayer::VideoRenderThread() {
       std::this_thread::sleep_until(target_display_time);
     }
 
-    MODULE_DEBUG(LOG_MODULE_VIDEO, "Rendering frame with PTS {} ms",
-                 video_frame->timestamp.ToMilliseconds());
+    // size_t current_queue_size = GetQueueSize();
+    // auto time_diff_ms = std::chrono::duration<double, std::milli>(
+    //                         target_display_time - current_time)
+    //                         .count();
+    // MODULE_INFO(LOG_MODULE_VIDEO,
+    //             "Rendering frame PTS={:.2f}ms, queue={},
+    //             time_adjust = { : .2f} ms ",
+    //                           video_frame->timestamp.ToMilliseconds(),
+    //             current_queue_size, time_diff_ms);
+
+    // MODULE_DEBUG(LOG_MODULE_VIDEO, "Rendering frame with PTS {} ms",
+    //              video_frame->timestamp.ToMilliseconds());
 
     // 渲染帧
     auto render_start = std::chrono::steady_clock::now();
@@ -203,8 +269,9 @@ void VideoPlayer::VideoRenderThread() {
 
     // 更新视频时钟到同步控制器
     double video_pts_ms = video_frame->timestamp.ToMilliseconds();
+    double normalized_pts_ms = GetNormalizedVideoPts(video_pts_ms);
     if (av_sync_controller_) {
-      av_sync_controller_->UpdateVideoClock(video_pts_ms, render_end);
+      av_sync_controller_->UpdateVideoClock(normalized_pts_ms, render_end);
     }
 
     // 计算音视频同步偏移
@@ -220,47 +287,115 @@ void VideoPlayer::VideoRenderThread() {
   }
 }
 
+double VideoPlayer::GetEffectiveElapsedTime(
+    std::chrono::steady_clock::time_point current_time) const {
+  // 计算从播放开始到现在的总时长
+  auto elapsed_time = current_time - play_start_time_;
+
+  // 获取累计暂停时长的快照（线程安全）
+  std::chrono::steady_clock::duration paused_duration_snapshot;
+  std::chrono::steady_clock::time_point pause_start_snapshot;
+  {
+    std::lock_guard<std::mutex> lock(pause_mutex_);
+    paused_duration_snapshot = accumulated_pause_duration_;
+    pause_start_snapshot = pause_start_time_;
+  }
+
+  // 如果当前正在暂停，需要加上本次暂停到现在的时间
+  if (is_paused_.load() &&
+      pause_start_snapshot.time_since_epoch().count() != 0) {
+    paused_duration_snapshot += current_time - pause_start_snapshot;
+  }
+
+  // 有效播放时长 = 总时长 - 暂停时长
+  auto effective_elapsed = elapsed_time - paused_duration_snapshot;
+  if (effective_elapsed.count() < 0) {
+    effective_elapsed = std::chrono::steady_clock::duration::zero();
+  }
+
+  return std::chrono::duration<double, std::milli>(effective_elapsed).count();
+}
+
+double VideoPlayer::CalculateTimeAdjustment(
+    double normalized_pts_ms,
+    double elapsed_ms,
+    std::chrono::steady_clock::time_point current_time) {
+  // 没有同步控制器：仅视频播放模式
+  if (!av_sync_controller_) {
+    double adjustment = normalized_pts_ms - elapsed_ms;
+    MODULE_DEBUG(LOG_MODULE_VIDEO,
+                 "Video-only mode: PTS={:.2f}ms, elapsed={:.2f}ms, "
+                 "adjustment={:.2f}ms",
+                 normalized_pts_ms, elapsed_ms, adjustment);
+    return adjustment;
+  }
+
+  // 更新视频时钟到同步控制器
+  av_sync_controller_->UpdateVideoClock(normalized_pts_ms, current_time);
+
+  // 获取主时钟和同步模式
+  double master_clock_ms = av_sync_controller_->GetMasterClock(current_time);
+  auto sync_mode = av_sync_controller_->GetSyncMode();
+
+  double time_adjustment_ms;
+
+  if (sync_mode == AVSyncController::SyncMode::EXTERNAL_MASTER) {
+    // 外部时钟模式（仅视频）：基于播放进度计算
+    time_adjustment_ms = normalized_pts_ms - elapsed_ms;
+    MODULE_DEBUG(LOG_MODULE_VIDEO,
+                 "External clock mode: PTS={:.2f}ms, elapsed={:.2f}ms, "
+                 "adjustment={:.2f}ms",
+                 normalized_pts_ms, elapsed_ms, time_adjustment_ms);
+  } else {
+    // 音视频同步模式：计算同步偏移量
+    double sync_offset_ms = normalized_pts_ms - master_clock_ms;
+    // 限制同步偏移在合理范围内，避免过度调整
+    sync_offset_ms = std::clamp(sync_offset_ms, -100.0, 100.0);
+
+    // 时间调整 = 基础调整 + 同步偏移
+    time_adjustment_ms = (normalized_pts_ms - elapsed_ms) + sync_offset_ms;
+    MODULE_DEBUG(LOG_MODULE_VIDEO,
+                 "AV sync mode: PTS={:.2f}ms, master={:.2f}ms, "
+                 "sync_offset={:.2f}ms, adjustment={:.2f}ms",
+                 normalized_pts_ms, master_clock_ms, sync_offset_ms,
+                 time_adjustment_ms);
+  }
+
+  return time_adjustment_ms;
+}
+
 std::chrono::steady_clock::time_point VideoPlayer::CalculateFrameDisplayTime(
     const VideoFrame& frame_info) {
   double video_pts_ms = frame_info.timestamp.ToMilliseconds();
   auto current_time = std::chrono::steady_clock::now();
 
-  // 检查时间戳是否有效
+  // 步骤1：检查PTS是否有效
   if (video_pts_ms < 0) {
-    // 无效时间戳：使用接收时间 + 帧间隔
+    // 无效时间戳：使用接收时间 + 固定帧间隔
     double frame_duration_ms = 1000.0 / config_.target_fps;
     return frame_info.receive_time +
            std::chrono::milliseconds(static_cast<int64_t>(frame_duration_ms));
   }
 
-  // 如果有音视频同步控制器，使用它来计算显示时间
-  if (av_sync_controller_) {
-    // 更新视频时钟
-    av_sync_controller_->UpdateVideoClock(video_pts_ms, current_time);
+  // 步骤2：PTS归一化（从0开始）
+  double normalized_pts_ms = GetNormalizedVideoPts(video_pts_ms);
 
-    // 获取主时钟（通常是音频时钟）
-    double master_clock_ms = av_sync_controller_->GetMasterClock(current_time);
+  // 步骤3：计算有效播放时长（排除暂停时间）
+  double elapsed_ms = GetEffectiveElapsedTime(current_time);
 
-    // 计算同步偏移 - 修复：应该基于播放开始时间计算
-    double sync_offset_ms = video_pts_ms - master_clock_ms;
+  // 步骤4：计算时间调整量（考虑音视频同步）
+  double time_adjustment_ms =
+      CalculateTimeAdjustment(normalized_pts_ms, elapsed_ms, current_time);
 
-    // 限制延迟范围 [-100ms, +100ms]
-    sync_offset_ms = std::clamp(sync_offset_ms, -100.0, 100.0);
+  // 步骤5：限制调整范围，避免极端延迟
+  time_adjustment_ms = std::clamp(time_adjustment_ms, -500.0, 500.0);
 
-    // 修复关键Bug：正确的时间计算
-    // 不是 current_time + offset，而是 play_start_time + video_pts +
-    // sync_adjustment
-    auto target_time = play_start_time_ +
-                       std::chrono::milliseconds(
-                           static_cast<int64_t>(video_pts_ms + sync_offset_ms));
-    return target_time;
-  } else {
-    // 仅视频播放模式：基于播放开始时间 + PTS
-    auto target_time =
-        play_start_time_ +
-        std::chrono::milliseconds(static_cast<int64_t>(video_pts_ms));
-    return target_time;
-  }
+  // 步骤6：计算目标显示时间点
+  auto target_time =
+      current_time +
+      std::chrono::milliseconds(static_cast<int64_t>(time_adjustment_ms));
+
+  return target_time;
 }
 
 bool VideoPlayer::ShouldDropFrame(
@@ -278,15 +413,16 @@ bool VideoPlayer::ShouldDropFrame(
                                                          target_display_time)
                    .count();
 
-  // 如果延迟超过两帧时间，考虑丢帧
+  // 延迟阈值：允许更大的延迟容忍度，避免过度丢帧
+  // 只有当延迟超过5帧时间（约166ms @ 30fps）时才丢帧
   double frame_duration_ms = 1000.0 / config_.target_fps;
-  bool should_drop = delay > (frame_duration_ms * 2.0);
+  bool should_drop = delay > (frame_duration_ms * 5.0);
 
   // 添加调试日志
   if (should_drop) {
-    MODULE_INFO(LOG_MODULE_VIDEO,
-                "Frame drop: PTS={:.2f}ms, delay={:.2f}ms, threshold={:.2f}ms",
-                video_pts_ms, delay, frame_duration_ms * 2.0);
+    MODULE_DEBUG(LOG_MODULE_VIDEO,
+                 "Frame drop: PTS={:.2f}ms, delay={:.2f}ms, threshold={:.2f}ms",
+                 video_pts_ms, delay, frame_duration_ms * 5.0);
   }
 
   return should_drop;
@@ -296,9 +432,10 @@ double VideoPlayer::CalculateAVSync(double video_pts_ms) {
   if (av_sync_controller_) {
     auto current_time = std::chrono::steady_clock::now();
     double master_clock_ms = av_sync_controller_->GetMasterClock(current_time);
+    double normalized_pts_ms = GetNormalizedVideoPts(video_pts_ms);
 
     // 返回音视频时钟差值：正值表示视频超前，负值表示音频超前
-    return video_pts_ms - master_clock_ms;
+    return normalized_pts_ms - master_clock_ms;
   } else {
     return 0.0;  // 没有同步控制器
   }

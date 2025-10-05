@@ -36,8 +36,18 @@ PlaybackController::PlaybackController(Demuxer* demuxer,
     audio_player_.reset();
   }
 
+  // 根据音频解码器状态设置同步模式
   if (!audio_decoder_ || !audio_decoder_->opened()) {
-    av_sync_controller_->SetSyncMode(AVSyncController::SyncMode::VIDEO_MASTER);
+    // 仅视频播放：使用外部时钟（系统时钟）避免循环依赖
+    av_sync_controller_->SetSyncMode(
+        AVSyncController::SyncMode::EXTERNAL_MASTER);
+    MODULE_INFO(LOG_MODULE_PLAYER,
+                "Audio not available, using EXTERNAL_MASTER sync mode");
+  } else {
+    // 音视频播放：使用音频主时钟
+    av_sync_controller_->SetSyncMode(AVSyncController::SyncMode::AUDIO_MASTER);
+    MODULE_INFO(LOG_MODULE_PLAYER,
+                "Audio available, using AUDIO_MASTER sync mode");
   }
 
   // 初始化视频播放器 (如果有视频流)
@@ -262,7 +272,7 @@ void PlaybackController::VideoDecodeTask() {
     }
 
     // 检查视频播放器的队列大小，避免内存积压
-    if (video_player_ && video_player_->GetQueueSize() > 30) {
+    if (video_player_ && video_player_->GetQueueSize() > 25) {
       std::this_thread::sleep_for(std::chrono::milliseconds(10));
       continue;
     }

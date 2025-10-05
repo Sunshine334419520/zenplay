@@ -189,6 +189,10 @@ class AVSyncController {
   ClockInfo audio_clock_;
   ClockInfo video_clock_;
   ClockInfo external_clock_;
+  bool audio_start_initialized_{false};
+  double audio_start_pts_ms_{0.0};
+  bool video_start_initialized_{false};
+  double video_start_pts_ms_{0.0};
 
   // 同步统计
   mutable std::mutex stats_mutex_;

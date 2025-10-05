@@ -33,14 +33,23 @@ void AVSyncController::UpdateAudioClock(
     is_initialized_ = true;
   }
 
+  double normalized_audio_pts = audio_pts_ms;
+  if (audio_pts_ms >= 0.0) {
+    if (!audio_start_initialized_) {
+      audio_start_initialized_ = true;
+      audio_start_pts_ms_ = audio_pts_ms;
+    }
+    normalized_audio_pts = audio_pts_ms - audio_start_pts_ms_;
+  }
+
   // 计算时钟漂移
   if (audio_clock_.system_time.time_since_epoch().count() > 0) {
     auto expected_pts = audio_clock_.GetCurrentTime(system_time);
-    double drift = audio_pts_ms - expected_pts;
+    double drift = normalized_audio_pts - expected_pts;
     audio_clock_.drift = drift * 0.1;  // 慢速调整漂移
   }
 
-  audio_clock_.pts_ms = audio_pts_ms;
+  audio_clock_.pts_ms = normalized_audio_pts;
   audio_clock_.system_time = system_time;
 
   UpdateSyncStats();
@@ -56,14 +65,23 @@ void AVSyncController::UpdateVideoClock(
     is_initialized_ = true;
   }
 
+  double normalized_video_pts = video_pts_ms;
+  if (video_pts_ms >= 0.0) {
+    if (!video_start_initialized_) {
+      video_start_initialized_ = true;
+      video_start_pts_ms_ = video_pts_ms;
+    }
+    normalized_video_pts = video_pts_ms - video_start_pts_ms_;
+  }
+
   // 计算时钟漂移
   if (video_clock_.system_time.time_since_epoch().count() > 0) {
     auto expected_pts = video_clock_.GetCurrentTime(system_time);
-    double drift = video_pts_ms - expected_pts;
+    double drift = normalized_video_pts - expected_pts;
     video_clock_.drift = drift * 0.1;  // 慢速调整漂移
   }
 
-  video_clock_.pts_ms = video_pts_ms;
+  video_clock_.pts_ms = normalized_video_pts;
   video_clock_.system_time = system_time;
 
   UpdateSyncStats();
@@ -162,6 +180,10 @@ void AVSyncController::Reset() {
     external_clock_.drift = 0.0;
 
     is_initialized_ = false;
+    audio_start_initialized_ = false;
+    audio_start_pts_ms_ = 0.0;
+    video_start_initialized_ = false;
+    video_start_pts_ms_ = 0.0;
   }
 
   {
