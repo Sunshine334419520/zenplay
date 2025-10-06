@@ -26,6 +26,7 @@ class AudioDecoder;
 class Renderer;
 class VideoPlayer;
 class AudioPlayer;
+class PlayerStateManager;
 
 /**
  * @brief 播放控制器 - 统一协调音视频播放和同步
@@ -40,7 +41,8 @@ class AudioPlayer;
 // 播放控制器，管理所有播放线程
 class PlaybackController {
  public:
-  PlaybackController(Demuxer* demuxer,
+  PlaybackController(std::shared_ptr<PlayerStateManager> state_manager,
+                     Demuxer* demuxer,
                      VideoDecoder* video_decoder,
                      AudioDecoder* audio_decoder,
                      Renderer* renderer);
@@ -119,24 +121,18 @@ class PlaybackController {
   std::unique_ptr<VideoPlayer> video_player_;
   std::unique_ptr<AVSyncController> av_sync_controller_;
 
+  // 状态管理器（共享）
+  std::shared_ptr<PlayerStateManager> state_manager_;
+
   // 数据队列
   ThreadSafeQueue<AVPacket*> video_packet_queue_;
   ThreadSafeQueue<AVPacket*> audio_packet_queue_;
-
-  // 线程控制
-  std::atomic<bool> is_playing_{false};
-  std::atomic<bool> is_paused_{false};
-  std::atomic<bool> should_stop_{false};
 
   // 解码线程（使用std::thread，因为需要持续运行）
   std::unique_ptr<std::thread> demux_thread_;
   std::unique_ptr<std::thread> video_decode_thread_;
   std::unique_ptr<std::thread> audio_decode_thread_;
   std::unique_ptr<std::thread> sync_control_thread_;
-
-  // 同步相关
-  mutable std::mutex state_mutex_;
-  std::condition_variable pause_cv_;
 };
 
 }  // namespace zenplay

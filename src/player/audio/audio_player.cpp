@@ -13,17 +13,16 @@ extern "C" {
 
 namespace zenplay {
 
-AudioPlayer::AudioPlayer(AVSyncController* sync_controller)
-    : sync_controller_(sync_controller),
+AudioPlayer::AudioPlayer(PlayerStateManager* state_manager,
+                         AVSyncController* sync_controller)
+    : state_manager_(state_manager),
+      sync_controller_(sync_controller),
       base_audio_pts_(0.0),
       total_samples_played_(0),
       swr_context_(nullptr),
       resampled_data_(nullptr),
       resampled_data_size_(0),
       max_resampled_samples_(0),
-      is_playing_(false),
-      is_paused_(false),
-      should_stop_(false),
       buffer_read_pos_(0),
       src_sample_rate_(0),
       src_channels_(0),
@@ -71,30 +70,19 @@ bool AudioPlayer::Init(const AudioConfig& config) {
 }
 
 bool AudioPlayer::Start() {
-  if (is_playing_.load()) {
-    return true;
-  }
-
-  should_stop_ = false;
-  is_paused_ = false;
+  MODULE_INFO(LOG_MODULE_AUDIO, "AudioPlayer Start called");
 
   if (!audio_output_->Start()) {
     MODULE_ERROR(LOG_MODULE_AUDIO, "Failed to start audio output");
     return false;
   }
 
-  is_playing_ = true;
   MODULE_INFO(LOG_MODULE_AUDIO, "Audio playback started");
   return true;
 }
 
 void AudioPlayer::Stop() {
-  if (!is_playing_.load()) {
-    return;
-  }
-
-  should_stop_ = true;
-  is_playing_ = false;
+  MODULE_INFO(LOG_MODULE_AUDIO, "AudioPlayer Stop called");
 
   // 通知可能在等待的线程
   frame_available_.notify_all();
@@ -118,18 +106,18 @@ void AudioPlayer::Stop() {
 }
 
 void AudioPlayer::Pause() {
-  is_paused_ = true;
   if (audio_output_) {
     audio_output_->Pause();
   }
+  MODULE_INFO(LOG_MODULE_AUDIO, "AudioPlayer paused");
 }
 
 void AudioPlayer::Resume() {
-  is_paused_ = false;
   if (audio_output_) {
     audio_output_->Resume();
   }
   frame_available_.notify_all();
+  MODULE_INFO(LOG_MODULE_AUDIO, "AudioPlayer resumed");
 }
 
 void AudioPlayer::SetVolume(float volume) {
@@ -146,7 +134,7 @@ float AudioPlayer::GetVolume() const {
 }
 
 bool AudioPlayer::PushFrame(AVFramePtr frame) {
-  if (!frame || should_stop_.load()) {
+  if (!frame || state_manager_->ShouldStop()) {
     return false;
   }
 
@@ -188,7 +176,9 @@ void AudioPlayer::ClearFrames() {
 }
 
 bool AudioPlayer::IsPlaying() const {
-  return is_playing_.load();
+  auto state = state_manager_->GetState();
+  return state == PlayerStateManager::PlayerState::kPlaying ||
+         state == PlayerStateManager::PlayerState::kPaused;
 }
 
 size_t AudioPlayer::GetQueueSize() const {
@@ -341,7 +331,7 @@ int AudioPlayer::ResampleFrame(const AVFrame* frame,
 }
 
 int AudioPlayer::FillAudioBuffer(uint8_t* buffer, int buffer_size) {
-  if (should_stop_.load() || is_paused_.load()) {
+  if (state_manager_->ShouldStop() || state_manager_->ShouldPause()) {
     // 播放静音
     memset(buffer, 0, buffer_size);
     return buffer_size;

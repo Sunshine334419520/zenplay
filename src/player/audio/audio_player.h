@@ -9,6 +9,7 @@
 
 #include "../sync/av_sync_controller.h"
 #include "audio_output.h"
+#include "player/common/player_state_manager.h"
 
 extern "C" {
 #include <libavutil/frame.h>
@@ -39,7 +40,8 @@ class AudioPlayer {
     int buffer_size = 1024;                            // 缓冲区大小
   };
 
-  AudioPlayer(AVSyncController* sync_controller = nullptr);
+  AudioPlayer(PlayerStateManager* state_manager,
+              AVSyncController* sync_controller = nullptr);
   ~AudioPlayer();
 
   /**
@@ -154,7 +156,8 @@ class AudioPlayer {
   AudioConfig config_;
   AudioOutput::AudioSpec output_spec_;
 
-  // 音视频同步控制器
+  // 状态管理和音视频同步控制器
+  PlayerStateManager* state_manager_;
   AVSyncController* sync_controller_;
 
   // PTS跟踪
@@ -173,11 +176,6 @@ class AudioPlayer {
   std::queue<AVFramePtr> frame_queue_;
   std::condition_variable frame_available_;
   static const size_t MAX_QUEUE_SIZE = 50;
-
-  // 播放状态
-  std::atomic<bool> is_playing_;
-  std::atomic<bool> is_paused_;
-  std::atomic<bool> should_stop_;
 
   // 内部缓冲区
   std::vector<uint8_t> internal_buffer_;

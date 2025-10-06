@@ -3,6 +3,8 @@
 #include <memory>
 #include <string>
 
+#include "player/common/player_state_manager.h"
+
 namespace zenplay {
 
 class VideoDecoder;
@@ -13,8 +15,6 @@ class PlaybackController;
 
 class ZenPlayer {
  public:
-  enum class PlayState { kStopped, kPlaying, kPaused };
-
   ZenPlayer();
   ~ZenPlayer();
 
@@ -33,8 +33,8 @@ class ZenPlayer {
   int64_t GetDuration() const;         // 获取总时长（毫秒）
   int64_t GetCurrentPlayTime() const;  // 获取当前播放时间（毫秒）
 
-  // 获取当前状态
-  PlayState GetState() const { return state_; }
+  // 获取当前状态 - 直接返回 PlayerStateManager 的状态
+  PlayerStateManager::PlayerState GetState() const;
   bool IsOpened() const { return is_opened_; }
 
  private:
@@ -44,7 +44,9 @@ class ZenPlayer {
   std::unique_ptr<Renderer> renderer_;
   std::unique_ptr<PlaybackController> playback_controller_;
 
-  PlayState state_ = PlayState::kStopped;
+  // 新：统一的状态管理器
+  std::shared_ptr<PlayerStateManager> state_manager_;
+
   bool is_opened_ = false;
 };
 

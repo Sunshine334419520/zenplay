@@ -16,6 +16,7 @@
 // available
 #endif
 
+#include "player/common/player_state_manager.h"
 #include "player/zen_player.h"
 
 namespace zenplay {
@@ -389,16 +390,22 @@ void MainWindow::togglePlayPause() {
   bool success = false;
   QString statusText;
 
+  using PlayerState = PlayerStateManager::PlayerState;
   switch (player_->GetState()) {
-    case ZenPlayer::PlayState::kStopped:
-    case ZenPlayer::PlayState::kPaused:
+    case PlayerState::kIdle:
+    case PlayerState::kStopped:
+    case PlayerState::kPaused:
+    case PlayerState::kOpening:
+    case PlayerState::kBuffering:
+    case PlayerState::kSeeking:
+    case PlayerState::kError:
       success = player_->Play();
       if (success) {
         updateTimer_->start();
         statusText = tr("Playing");
       }
       break;
-    case ZenPlayer::PlayState::kPlaying:
+    case PlayerState::kPlaying:
       success = player_->Pause();
       if (success) {
         updateTimer_->stop();
@@ -480,7 +487,8 @@ void MainWindow::updatePlaybackProgress() {
     return;
   }
 
-  if (player_->GetState() == ZenPlayer::PlayState::kPlaying) {
+  using PlayerState = PlayerStateManager::PlayerState;
+  if (player_->GetState() == PlayerState::kPlaying) {
     // 获取真实播放时间（毫秒）
     int64_t currentTimeMs = player_->GetCurrentPlayTime();
 
@@ -522,7 +530,8 @@ void MainWindow::updateControlBarState() {
   }
 
   bool hasMedia = player_->IsOpened();
-  bool isPlaying = (player_->GetState() == ZenPlayer::PlayState::kPlaying);
+  using PlayerState = PlayerStateManager::PlayerState;
+  bool isPlaying = (player_->GetState() == PlayerState::kPlaying);
 
   // Update play/pause button
   if (isPlaying) {

@@ -8,6 +8,7 @@
 #include "player/codec/audio_decoder.h"
 #include "player/codec/video_decoder.h"
 #include "player/common/log_manager.h"
+#include "player/common/player_state_manager.h"
 #include "player/common/timer_util.h"
 #include "player/demuxer/demuxer.h"
 #include "player/stats/statistics_manager.h"
@@ -18,19 +19,25 @@
 
 namespace zenplay {
 
-PlaybackController::PlaybackController(Demuxer* demuxer,
-                                       VideoDecoder* video_decoder,
-                                       AudioDecoder* audio_decoder,
-                                       Renderer* renderer)
+PlaybackController::PlaybackController(
+    std::shared_ptr<PlayerStateManager> state_manager,
+    Demuxer* demuxer,
+    VideoDecoder* video_decoder,
+    AudioDecoder* audio_decoder,
+    Renderer* renderer)
     : demuxer_(demuxer),
       video_decoder_(video_decoder),
       audio_decoder_(audio_decoder),
-      renderer_(renderer) {
+      renderer_(renderer),
+      state_manager_(state_manager) {
+  MODULE_INFO(LOG_MODULE_PLAYER,
+              "PlaybackController created with unified state management");
   // 初始化音视频同步控制器
   av_sync_controller_ = std::make_unique<AVSyncController>();
 
-  // 初始化音频播放器
-  audio_player_ = std::make_unique<AudioPlayer>(av_sync_controller_.get());
+  // 初始化音频播放器并传递state_manager和sync_controller
+  audio_player_ = std::make_unique<AudioPlayer>(state_manager_.get(),
+                                                av_sync_controller_.get());
   if (!audio_player_->Init()) {
     MODULE_ERROR(LOG_MODULE_PLAYER, "Failed to initialize audio player");
     audio_player_.reset();
@@ -55,8 +62,9 @@ PlaybackController::PlaybackController(Demuxer* demuxer,
     MODULE_INFO(LOG_MODULE_PLAYER,
                 "Video decoder is opened, creating VideoPlayer");
 
-    // 创建VideoPlayer并传递AVSyncController
-    video_player_ = std::make_unique<VideoPlayer>(av_sync_controller_.get());
+    // 创建VideoPlayer并传递state_manager和AVSyncController
+    video_player_ = std::make_unique<VideoPlayer>(state_manager_.get(),
+                                                  av_sync_controller_.get());
 
     // 创建线程安全的渲染代理
     if (!video_player_->Init(renderer_)) {
@@ -75,15 +83,7 @@ PlaybackController::~PlaybackController() {
 }
 
 bool PlaybackController::Start() {
-  std::lock_guard<std::mutex> lock(state_mutex_);
-
-  if (is_playing_.load()) {
-    return true;  // Already playing
-  }
-
-  should_stop_ = false;
-  is_playing_ = true;
-  is_paused_ = false;
+  // 注意：不再需要 state_mutex_，状态由 PlayerStateManager 管理
 
   // 启动解封装线程 - 使用专门的工作线程
   demux_thread_ =
@@ -122,18 +122,13 @@ bool PlaybackController::Start() {
   sync_control_thread_ =
       std::make_unique<std::thread>(&PlaybackController::SyncControlTask, this);
 
+  MODULE_INFO(LOG_MODULE_PLAYER, "PlaybackController started");
   return true;
 }
 
 void PlaybackController::Stop() {
-  {
-    std::lock_guard<std::mutex> lock(state_mutex_);
-    should_stop_ = true;
-    is_playing_ = false;
-    is_paused_ = false;
-  }
+  MODULE_INFO(LOG_MODULE_PLAYER, "Stopping PlaybackController");
 
-  pause_cv_.notify_all();
   StopAllThreads();
 
   // 停止播放器
@@ -143,16 +138,12 @@ void PlaybackController::Stop() {
   if (video_player_) {
     video_player_->Stop();
   }
+
+  MODULE_INFO(LOG_MODULE_PLAYER, "PlaybackController stopped");
 }
 
 void PlaybackController::Pause() {
-  std::lock_guard<std::mutex> lock(state_mutex_);
-
-  if (!is_playing_.load()) {
-    return;  // Not playing
-  }
-
-  is_paused_ = true;
+  MODULE_INFO(LOG_MODULE_PLAYER, "Pausing PlaybackController");
 
   // 暂停播放器
   if (audio_player_) {
@@ -164,13 +155,7 @@ void PlaybackController::Pause() {
 }
 
 void PlaybackController::Resume() {
-  {
-    std::lock_guard<std::mutex> lock(state_mutex_);
-    if (!is_playing_.load() || !is_paused_.load()) {
-      return;  // Not in pause state
-    }
-    is_paused_ = false;
-  }
+  MODULE_INFO(LOG_MODULE_PLAYER, "Resuming PlaybackController");
 
   // 恢复播放器
   if (audio_player_) {
@@ -179,8 +164,6 @@ void PlaybackController::Resume() {
   if (video_player_) {
     video_player_->Resume();
   }
-
-  pause_cv_.notify_all();
 }
 
 bool zenplay::PlaybackController::Seek(int64_t timestamp_ms) {
@@ -193,12 +176,10 @@ void PlaybackController::DemuxTask() {
     return;
   }
 
-  while (!should_stop_.load()) {
+  while (!state_manager_->ShouldStop()) {
     // 检查暂停状态
-    if (is_paused_.load()) {
-      std::unique_lock<std::mutex> lock(state_mutex_);
-      pause_cv_.wait(
-          lock, [this] { return !is_paused_.load() || should_stop_.load(); });
+    if (state_manager_->ShouldPause()) {
+      state_manager_->WaitForResume();
       continue;
     }
 
@@ -262,12 +243,10 @@ void PlaybackController::VideoDecodeTask() {
   AVPacket* packet = nullptr;
   std::vector<AVFramePtr> frames;
 
-  while (!should_stop_.load()) {
+  while (!state_manager_->ShouldStop()) {
     // 检查暂停状态
-    if (is_paused_.load()) {
-      std::unique_lock<std::mutex> lock(state_mutex_);
-      pause_cv_.wait(
-          lock, [this] { return !is_paused_.load() || should_stop_.load(); });
+    if (state_manager_->ShouldPause()) {
+      state_manager_->WaitForResume();
       continue;
     }
 
@@ -347,12 +326,10 @@ void PlaybackController::AudioDecodeTask() {
   AVPacket* packet = nullptr;
   std::vector<AVFramePtr> frames;
 
-  while (!should_stop_.load()) {
+  while (!state_manager_->ShouldStop()) {
     // 检查暂停状态
-    if (is_paused_.load()) {
-      std::unique_lock<std::mutex> lock(state_mutex_);
-      pause_cv_.wait(
-          lock, [this] { return !is_paused_.load() || should_stop_.load(); });
+    if (state_manager_->ShouldPause()) {
+      state_manager_->WaitForResume();
       continue;
     }
 
@@ -397,12 +374,10 @@ void PlaybackController::AudioDecodeTask() {
 }
 
 void PlaybackController::SyncControlTask() {
-  while (!should_stop_.load()) {
+  while (!state_manager_->ShouldStop()) {
     // 检查暂停状态
-    if (is_paused_.load()) {
-      std::unique_lock<std::mutex> lock(state_mutex_);
-      pause_cv_.wait(
-          lock, [this] { return !is_paused_.load() || should_stop_.load(); });
+    if (state_manager_->ShouldPause()) {
+      state_manager_->WaitForResume();
       continue;
     }
 

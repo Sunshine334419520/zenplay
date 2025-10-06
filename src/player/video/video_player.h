@@ -9,6 +9,7 @@
 #include <thread>
 
 #include "player/common/common_def.h"
+#include "player/common/player_state_manager.h"
 #include "player/sync/av_sync_controller.h"
 #include "player/video/render/renderer.h"
 
@@ -54,7 +55,8 @@ class VideoPlayer {
     }
   };
 
-  VideoPlayer(AVSyncController* sync_controller = nullptr);
+  VideoPlayer(PlayerStateManager* state_manager,
+              AVSyncController* sync_controller = nullptr);
   ~VideoPlayer();
 
   /**
@@ -191,6 +193,7 @@ class VideoPlayer {
 
   // 渲染器和同步控制器
   Renderer* renderer_;
+  PlayerStateManager* state_manager_;     // 状态管理器
   AVSyncController* av_sync_controller_;  // 外部管理的同步控制器
 
   // 配置
@@ -213,13 +216,6 @@ class VideoPlayer {
 
   // 渲染线程
   std::unique_ptr<std::thread> render_thread_;
-  std::atomic<bool> is_playing_;
-  std::atomic<bool> is_paused_;
-  std::atomic<bool> should_stop_;
-
-  // 同步相关
-  mutable std::mutex sync_mutex_;
-  std::condition_variable pause_cv_;
 
   // 播放时间管理
   std::chrono::steady_clock::time_point play_start_time_;  // 播放开始时间

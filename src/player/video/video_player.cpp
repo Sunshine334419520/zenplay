@@ -8,11 +8,9 @@
 
 namespace zenplay {
 
-VideoPlayer::VideoPlayer(AVSyncController* sync_controller)
-    : av_sync_controller_(sync_controller),
-      is_playing_(false),
-      is_paused_(false),
-      should_stop_(false) {}
+VideoPlayer::VideoPlayer(PlayerStateManager* state_manager,
+                         AVSyncController* sync_controller)
+    : state_manager_(state_manager), av_sync_controller_(sync_controller) {}
 
 double VideoPlayer::GetNormalizedVideoPts(double raw_pts_ms) {
   if (raw_pts_ms < 0.0) {
@@ -50,12 +48,7 @@ bool VideoPlayer::Init(Renderer* renderer, const VideoConfig& config) {
 }
 
 bool VideoPlayer::Start() {
-  if (is_playing_.load()) {
-    return true;
-  }
-
-  should_stop_ = false;
-  is_paused_ = false;
+  MODULE_INFO(LOG_MODULE_VIDEO, "VideoPlayer Start called");
 
   // 记录播放开始时间
   play_start_time_ = std::chrono::steady_clock::now();
@@ -71,20 +64,15 @@ bool VideoPlayer::Start() {
   render_thread_ =
       std::make_unique<std::thread>(&VideoPlayer::VideoRenderThread, this);
 
-  is_playing_ = true;
   MODULE_INFO(LOG_MODULE_VIDEO, "VideoPlayer started");
   return true;
 }
 
 void VideoPlayer::Stop() {
-  if (!is_playing_.load()) {
-    return;
-  }
+  MODULE_INFO(LOG_MODULE_VIDEO, "VideoPlayer Stop called");
 
-  should_stop_ = true;
-  is_playing_ = false;
-
-  if (is_paused_.exchange(false)) {
+  // Handle accumulated pause duration if paused
+  if (state_manager_->GetState() == PlayerStateManager::PlayerState::kPaused) {
     auto stop_time = std::chrono::steady_clock::now();
     std::lock_guard<std::mutex> lock(pause_mutex_);
     accumulated_pause_duration_ += stop_time - pause_start_time_;
@@ -92,7 +80,6 @@ void VideoPlayer::Stop() {
 
   // 通知可能在等待的线程
   frame_available_.notify_all();
-  pause_cv_.notify_all();
 
   // 等待渲染线程结束
   if (render_thread_ && render_thread_->joinable()) {
@@ -113,37 +100,24 @@ void VideoPlayer::Stop() {
 }
 
 void VideoPlayer::Pause() {
-  bool was_paused = is_paused_.exchange(true);
-  if (!was_paused) {
-    std::lock_guard<std::mutex> lock(pause_mutex_);
-    pause_start_time_ = std::chrono::steady_clock::now();
-    MODULE_INFO(LOG_MODULE_VIDEO, "VideoPlayer paused");
-  } else {
-    MODULE_INFO(LOG_MODULE_VIDEO,
-                "VideoPlayer paused (already in pause state)");
-  }
+  std::lock_guard<std::mutex> lock(pause_mutex_);
+  pause_start_time_ = std::chrono::steady_clock::now();
+  MODULE_INFO(LOG_MODULE_VIDEO, "VideoPlayer paused");
 }
 
 void VideoPlayer::Resume() {
-  bool was_paused = is_paused_.exchange(false);
-  if (was_paused) {
-    auto resume_time = std::chrono::steady_clock::now();
-    {
-      std::lock_guard<std::mutex> lock(pause_mutex_);
-      accumulated_pause_duration_ += resume_time - pause_start_time_;
-    }
-    MODULE_INFO(LOG_MODULE_VIDEO, "VideoPlayer resumed");
-  } else {
-    MODULE_INFO(LOG_MODULE_VIDEO,
-                "VideoPlayer resume called while already playing");
+  auto resume_time = std::chrono::steady_clock::now();
+  {
+    std::lock_guard<std::mutex> lock(pause_mutex_);
+    accumulated_pause_duration_ += resume_time - pause_start_time_;
   }
+  MODULE_INFO(LOG_MODULE_VIDEO, "VideoPlayer resumed");
 
-  pause_cv_.notify_all();
   frame_available_.notify_all();
 }
 
 bool VideoPlayer::PushFrame(AVFramePtr frame, const FrameTimestamp& timestamp) {
-  if (!frame || should_stop_.load()) {
+  if (!frame || state_manager_->ShouldStop()) {
     return false;
   }
 
@@ -182,7 +156,9 @@ void VideoPlayer::ClearFrames() {
 }
 
 bool VideoPlayer::IsPlaying() const {
-  return is_playing_.load();
+  auto state = state_manager_->GetState();
+  return state == PlayerStateManager::PlayerState::kPlaying ||
+         state == PlayerStateManager::PlayerState::kPaused;
 }
 
 size_t VideoPlayer::GetQueueSize() const {
@@ -198,12 +174,10 @@ void VideoPlayer::Cleanup() {
 void VideoPlayer::VideoRenderThread() {
   auto last_render_time = std::chrono::steady_clock::now();
 
-  while (!should_stop_.load()) {
+  while (!state_manager_->ShouldStop()) {
     // 检查暂停状态
-    if (is_paused_.load()) {
-      std::unique_lock<std::mutex> lock(sync_mutex_);
-      pause_cv_.wait(
-          lock, [this] { return !is_paused_.load() || should_stop_.load(); });
+    if (state_manager_->ShouldPause()) {
+      state_manager_->WaitForResume();
       last_render_time = std::chrono::steady_clock::now();
       continue;
     }
@@ -213,10 +187,10 @@ void VideoPlayer::VideoRenderThread() {
     {
       std::unique_lock<std::mutex> lock(frame_queue_mutex_);
       frame_available_.wait(lock, [this] {
-        return !frame_queue_.empty() || should_stop_.load();
+        return !frame_queue_.empty() || state_manager_->ShouldStop();
       });
 
-      if (should_stop_.load()) {
+      if (state_manager_->ShouldStop()) {
         break;
       }
 
@@ -302,7 +276,7 @@ double VideoPlayer::GetEffectiveElapsedTime(
   }
 
   // 如果当前正在暂停，需要加上本次暂停到现在的时间
-  if (is_paused_.load() &&
+  if (state_manager_->GetState() == PlayerStateManager::PlayerState::kPaused &&
       pause_start_snapshot.time_since_epoch().count() != 0) {
     paused_duration_snapshot += current_time - pause_start_snapshot;
   }

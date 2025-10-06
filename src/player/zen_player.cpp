@@ -7,17 +7,27 @@
 #include "player/codec/audio_decoder.h"
 #include "player/codec/video_decoder.h"
 #include "player/common/log_manager.h"
+#include "player/common/player_state_manager.h"
 #include "player/demuxer/demuxer.h"
 #include "player/playback_controller.h"
 #include "player/video/render/renderer.h"
 
 namespace zenplay {
 
+// 直接返回 PlayerStateManager 的状态
+PlayerStateManager::PlayerState ZenPlayer::GetState() const {
+  return state_manager_->GetState();
+}
+
 ZenPlayer::ZenPlayer()
     : demuxer_(std::make_unique<Demuxer>()),
       video_decoder_(std::make_unique<VideoDecoder>()),
       audio_decoder_(std::make_unique<AudioDecoder>()),
-      renderer_(std::unique_ptr<Renderer>(Renderer::CreateRenderer())) {}
+      renderer_(std::unique_ptr<Renderer>(Renderer::CreateRenderer())),
+      state_manager_(std::make_shared<PlayerStateManager>()) {
+  MODULE_INFO(LOG_MODULE_PLAYER,
+              "ZenPlayer created with unified state management");
+}
 
 ZenPlayer::~ZenPlayer() {
   Close();
@@ -29,6 +39,8 @@ bool ZenPlayer::Open(const std::string& url) {
   if (is_opened_) {
     Close();
   }
+
+  state_manager_->TransitionToOpening();
 
   if (!demuxer_->Open(url)) {
     MODULE_ERROR(LOG_MODULE_PLAYER, "Failed to open demuxer for URL: %s",
@@ -59,13 +71,14 @@ bool ZenPlayer::Open(const std::string& url) {
     }
   }
 
-  // 创建播放控制器
+  // 创建播放控制器（传递状态管理器）
   playback_controller_ = std::make_unique<PlaybackController>(
-      demuxer_.get(), video_decoder_.get(), audio_decoder_.get(),
-      renderer_.get());
+      state_manager_, demuxer_.get(), video_decoder_.get(),
+      audio_decoder_.get(), renderer_.get());
 
   is_opened_ = true;
-  state_ = PlayState::kStopped;
+  state_manager_->TransitionToStopped();
+  MODULE_INFO(LOG_MODULE_PLAYER, "File opened successfully, state: Stopped");
   return true;  // Successfully opened
 }
 
@@ -93,6 +106,8 @@ void ZenPlayer::Close() {
     return;
   }
 
+  MODULE_INFO(LOG_MODULE_PLAYER, "Closing player");
+
   // 停止播放
   Stop();
 
@@ -113,59 +128,78 @@ void ZenPlayer::Close() {
   }
 
   is_opened_ = false;
-  state_ = PlayState::kStopped;
+  state_manager_->TransitionToIdle();
+  MODULE_INFO(LOG_MODULE_PLAYER, "Player closed");
 }
 
 bool ZenPlayer::Play() {
   if (!is_opened_ || !playback_controller_) {
-    return false;  // Not opened
+    MODULE_WARN(LOG_MODULE_PLAYER, "Cannot play: player not opened");
+    return false;
   }
 
-  if (state_ == PlayState::kPaused) {
-    // 从暂停状态恢复
+  // 如果已经在播放，直接返回
+  if (state_manager_->IsPlaying()) {
+    return true;
+  }
+
+  // 如果是暂停状态，恢复播放
+  if (state_manager_->IsPaused()) {
     playback_controller_->Resume();
-    state_ = PlayState::kPlaying;
+    state_manager_->TransitionToPlaying();
+    MODULE_INFO(LOG_MODULE_PLAYER, "Resumed from pause");
     return true;
   }
 
-  if (state_ == PlayState::kPlaying) {
-    return true;  // Already playing
-  }
+  // 从停止状态开始播放
+  // ⚠️ 关键修复：先转换状态，再启动线程，避免竞态条件
+  state_manager_->TransitionToPlaying();
 
-  // 开始播放
   if (playback_controller_->Start()) {
-    state_ = PlayState::kPlaying;
+    MODULE_INFO(LOG_MODULE_PLAYER, "Playback started");
     return true;
   }
 
+  // 启动失败，回滚状态
+  state_manager_->TransitionToStopped();
+  MODULE_ERROR(LOG_MODULE_PLAYER, "Failed to start playback");
   return false;
 }
 
 bool ZenPlayer::Pause() {
   if (!is_opened_ || !playback_controller_) {
+    MODULE_WARN(LOG_MODULE_PLAYER, "Cannot pause: player not opened");
     return false;
   }
 
-  if (state_ != PlayState::kPlaying) {
-    return false;  // Not playing
+  if (!state_manager_->IsPlaying()) {
+    MODULE_WARN(LOG_MODULE_PLAYER, "Cannot pause: not playing");
+    return false;
   }
 
   playback_controller_->Pause();
-  state_ = PlayState::kPaused;
+  state_manager_->TransitionToPaused();
+  MODULE_INFO(LOG_MODULE_PLAYER, "Playback paused");
   return true;
 }
 
 bool ZenPlayer::Stop() {
   if (!is_opened_ || !playback_controller_) {
+    MODULE_WARN(LOG_MODULE_PLAYER, "Cannot stop: player not opened");
     return false;
   }
 
-  if (state_ == PlayState::kStopped) {
+  if (state_manager_->IsStopped()) {
     return true;  // Already stopped
   }
 
+  // ⚠️ 先转换状态，让工作线程看到停止信号
+  state_manager_->TransitionToStopped();
+
+  // 然后停止所有线程（线程会检查 ShouldStop() 并退出）
   playback_controller_->Stop();
-  state_ = PlayState::kStopped;
+
+  MODULE_INFO(LOG_MODULE_PLAYER, "Playback stopped");
   return true;
 }
 
