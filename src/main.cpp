@@ -25,9 +25,19 @@ int main(int argc, char* argv[]) {
   QApplication app(argc, argv);
 
   // 初始化日志系统
+  // 编译期级别（CMakeLists.txt）：Debug=TRACE, Release=INFO
+  // 运行期级别（这里设置）：Debug=DEBUG, Release=INFO
+#ifdef NDEBUG
+  // Release 模式：只输出 INFO 及以上
+  if (!zenplay::LogManager::Initialize(zenplay::LogManager::LogLevel::INFO)) {
+    return -1;
+  }
+#else
+  // Debug 模式：输出 DEBUG 及以上（可以看到详细调试信息）
   if (!zenplay::LogManager::Initialize(zenplay::LogManager::LogLevel::DEBUG)) {
     return -1;
   }
+#endif
 
   if (!zenplay::stats::InitializeStatsSystem()) {
     ZENPLAY_WARN("Continuing without statistics system");

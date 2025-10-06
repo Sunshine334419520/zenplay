@@ -28,6 +28,36 @@ elseif(UNIX)
     add_definitions(-DOS_LINUX)
 endif()
 
+# spdlog 编译期日志级别配置
+# 编译期：决定哪些日志代码会被编译进程序
+# 运行期：LogManager::Initialize() 决定哪些日志实际输出
+# 
+# Debug 模式：编译所有级别（包括 TRACE/DEBUG），方便调试
+# Release 模式：只编译 INFO 及以上，减小程序体积和性能开销
+#
+# 注意：Visual Studio 是多配置生成器，CMAKE_BUILD_TYPE 在配置时为空
+# 需要使用生成器表达式在编译时根据配置选择不同的宏定义
+if (CMAKE_CONFIGURATION_TYPES)
+    # 多配置生成器（Visual Studio, Xcode）
+    # 使用生成器表达式在编译时动态选择
+    add_compile_definitions(
+        $<$<CONFIG:Debug>:SPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_TRACE>
+        $<$<CONFIG:Release>:SPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_INFO>
+        $<$<CONFIG:RelWithDebInfo>:SPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_DEBUG>
+        $<$<CONFIG:MinSizeRel>:SPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_INFO>
+    )
+    message(STATUS "spdlog compile-time level: Multi-config (Debug=TRACE, Release=INFO)")
+else()
+    # 单配置生成器（Ninja, Unix Makefiles）
+    if (CMAKE_BUILD_TYPE STREQUAL "Debug")
+        add_definitions(-DSPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_TRACE)
+        message(STATUS "spdlog compile-time level: TRACE (Debug build)")
+    else()
+        add_definitions(-DSPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_INFO)
+        message(STATUS "spdlog compile-time level: INFO (Release build)")
+    endif()
+endif()
+
 add_subdirectory(third_party/loki)
 
 # src files
@@ -73,7 +103,25 @@ list(APPEND SRC_FILES ${VIEW_FILES})
 # resource files
 set(QRC_FILES resources/zenplay.qrc)
 
-add_executable(${PROJECT_NAME} ${SRC_FILES} ${QRC_FILES})
+# Windows 控制台配置
+# Debug 模式：显示控制台窗口（方便查看日志）
+# Release 模式：不显示控制台（纯 GUI 应用）
+# 
+# 注意：对于 Visual Studio 多配置生成器，需要在构建时指定配置
+# Debug 构建：cmake --build build --config Debug
+# Release 构建：cmake --build build --config Release
+if (WIN32)
+    # 默认不添加 WIN32 标志，显示控制台（开发友好）
+    # 如果需要 Release 无控制台，手动构建时添加 WIN32 属性
+    add_executable(${PROJECT_NAME} ${SRC_FILES} ${QRC_FILES})
+    
+    # 设置 Release 配置为 WIN32 应用（无控制台）
+    set_target_properties(${PROJECT_NAME} PROPERTIES
+        WIN32_EXECUTABLE $<IF:$<CONFIG:Debug>,FALSE,TRUE>
+    )
+else()
+    add_executable(${PROJECT_NAME} ${SRC_FILES} ${QRC_FILES})
+endif()
 
 target_link_libraries(${PROJECT_NAME} PRIVATE 
     nlohmann_json::nlohmann_json
