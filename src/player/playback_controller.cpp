@@ -76,22 +76,10 @@ PlaybackController::PlaybackController(
   } else {
     MODULE_WARN(LOG_MODULE_PLAYER, "Video decoder not opened or not available");
   }
-
-  // 启动 Seek 专用线程
-  seek_thread_ =
-      std::make_unique<std::thread>(&PlaybackController::SeekTask, this);
-  MODULE_INFO(LOG_MODULE_PLAYER, "Seek thread started");
 }
 
 PlaybackController::~PlaybackController() {
   Stop();
-
-  // 停止 Seek 队列和线程
-  seek_request_queue_.Stop();
-  if (seek_thread_ && seek_thread_->joinable()) {
-    seek_thread_->join();
-    seek_thread_.reset();
-  }
 }
 
 bool PlaybackController::Start() {
@@ -133,6 +121,10 @@ bool PlaybackController::Start() {
   // 启动同步控制任务
   sync_control_thread_ =
       std::make_unique<std::thread>(&PlaybackController::SyncControlTask, this);
+
+  // 启动 Seek 专用线程
+  seek_thread_ =
+      std::make_unique<std::thread>(&PlaybackController::SeekTask, this);
 
   MODULE_INFO(LOG_MODULE_PLAYER, "PlaybackController started");
   return true;
@@ -466,6 +458,12 @@ void PlaybackController::StopAllThreads() {
   // 停止队列
   video_packet_queue_.Stop();
   audio_packet_queue_.Stop();
+  seek_request_queue_.Stop();
+
+  if (seek_thread_ && seek_thread_->joinable()) {
+    seek_thread_->join();
+    seek_thread_.reset();
+  }
 
   // 等待线程结束
   if (demux_thread_ && demux_thread_->joinable()) {
