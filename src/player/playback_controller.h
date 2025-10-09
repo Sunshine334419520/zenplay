@@ -11,6 +11,7 @@
 #include "loki/src/callback.h"
 #include "loki/src/threading/loki_thread.h"
 #include "player/codec/decode.h"
+#include "player/common/player_state_manager.h"
 #include "player/common/thread_safe_queue.h"
 #include "player/sync/av_sync_controller.h"
 
@@ -70,11 +71,24 @@ class PlaybackController {
   void Resume();
 
   /**
-   * @brief 跳转到指定时间
+   * @brief 跳转到指定时间（同步版本，已弃用）
    * @param timestamp_ms 目标时间戳(毫秒)
    * @return 成功返回true
+   * @deprecated 使用 SeekAsync 替代
    */
   bool Seek(int64_t timestamp_ms);
+
+  /**
+   * @brief 异步跳转到指定时间
+   * @param timestamp_ms 目标时间戳(毫秒)
+   * @param backward 是否向后搜索关键帧
+   * @note 此方法立即返回，实际跳转在后台线程执行
+   *       通过 PlayerStateManager 状态通知结果：
+   *       - kSeeking: 开始跳转
+   *       - kPlaying/kPaused: 跳转成功
+   *       - kError: 跳转失败
+   */
+  void SeekAsync(int64_t timestamp_ms, bool backward = true);
 
   /**
    * @brief 设置音量
@@ -94,6 +108,34 @@ class PlaybackController {
   int64_t GetCurrentTime() const;
 
  private:
+  /**
+   * @brief Seek 请求结构
+   */
+  struct SeekRequest {
+    int64_t timestamp_ms;
+    bool backward;
+    PlayerStateManager::PlayerState restore_state;
+
+    SeekRequest(int64_t ts, bool bw, PlayerStateManager::PlayerState state)
+        : timestamp_ms(ts), backward(bw), restore_state(state) {}
+  };
+
+  /**
+   * @brief Seek 执行线程
+   */
+  void SeekTask();
+
+  /**
+   * @brief 执行单次 Seek 操作（内部方法）
+   */
+  bool ExecuteSeek(const SeekRequest& request);
+
+  /**
+   * @brief 清空所有队列（packet 和 frame）
+   * @note 用于 Seek、Stop 等需要清空缓冲的场景
+   */
+  void ClearAllQueues();
+
   // 解封装任务 - 在专门的工作线程执行
   void DemuxTask();
 
@@ -133,6 +175,11 @@ class PlaybackController {
   std::unique_ptr<std::thread> video_decode_thread_;
   std::unique_ptr<std::thread> audio_decode_thread_;
   std::unique_ptr<std::thread> sync_control_thread_;
+
+  // Seek 专用线程和队列
+  std::unique_ptr<std::thread> seek_thread_;
+  ThreadSafeQueue<SeekRequest> seek_request_queue_;
+  std::atomic<bool> seeking_{false};
 };
 
 }  // namespace zenplay

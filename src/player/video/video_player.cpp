@@ -155,6 +155,22 @@ void VideoPlayer::ClearFrames() {
   first_video_pts_ms_ = 0.0;
 }
 
+void VideoPlayer::ResetTimestamps() {
+  std::lock_guard<std::mutex> lock(pause_mutex_);
+
+  // 重置 PTS 归一化状态
+  first_pts_initialized_ = false;
+  first_video_pts_ms_ = 0.0;
+
+  // 重置播放时间
+  play_start_time_ = std::chrono::steady_clock::now();
+
+  // 重置暂停累计时间
+  accumulated_pause_duration_ = std::chrono::steady_clock::duration::zero();
+
+  MODULE_INFO(LOG_MODULE_VIDEO, "VideoPlayer timestamps reset");
+}
+
 bool VideoPlayer::IsPlaying() const {
   auto state = state_manager_->GetState();
   return state == PlayerStateManager::PlayerState::kPlaying ||
@@ -224,14 +240,11 @@ void VideoPlayer::VideoRenderThread() {
     // auto time_diff_ms = std::chrono::duration<double, std::milli>(
     //                         target_display_time - current_time)
     //                         .count();
-    // MODULE_INFO(LOG_MODULE_VIDEO,
-    //             "Rendering frame PTS={:.2f}ms, queue={},
-    //             time_adjust = { : .2f} ms ",
-    //                           video_frame->timestamp.ToMilliseconds(),
-    //             current_queue_size, time_diff_ms);
-
-    // MODULE_DEBUG(LOG_MODULE_VIDEO, "Rendering frame with PTS {} ms",
-    //              video_frame->timestamp.ToMilliseconds());
+    // MODULE_DEBUG(
+    //     LOG_MODULE_VIDEO,
+    //     "Rendering frame PTS={:.2f}ms, queue={},time_adjust = { : .2f} ms ",
+    //     video_frame->timestamp.ToMilliseconds(), current_queue_size,
+    //     time_diff_ms);
 
     // 渲染帧
     auto render_start = std::chrono::steady_clock::now();

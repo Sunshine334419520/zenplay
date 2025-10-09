@@ -6,7 +6,7 @@ extern "C" {
 #include <libavutil/imgutils.h>
 }
 
-#include "../../../common/log_manager.h"
+#include "player/common/log_manager.h"
 #include "sdl_manager.h"
 
 #ifdef _WIN32
@@ -66,9 +66,6 @@ bool SDLRenderer::RenderFrame(AVFrame* frame) {
     return false;
   }
 
-  MODULE_INFO(LOG_MODULE_RENDERER, "Rendering frame: {}x{}, format={}",
-              frame->width, frame->height, frame->format);
-
   // Create or update texture if frame properties changed
   if (frame_width_ != frame->width || frame_height_ != frame->height ||
       src_pixel_format_ != static_cast<AVPixelFormat>(frame->format)) {
@@ -91,8 +88,6 @@ bool SDLRenderer::RenderFrame(AVFrame* frame) {
 
   // Calculate display rectangle maintaining aspect ratio
   SDL_Rect display_rect = CalculateDisplayRect(frame_width_, frame_height_);
-  MODULE_INFO(LOG_MODULE_RENDERER, "Display rect: {}x{} at ({},{})",
-              display_rect.w, display_rect.h, display_rect.x, display_rect.y);
 
   // Copy texture to renderer
   if (SDL_RenderCopy(renderer_, texture_, nullptr, &display_rect) != 0) {
@@ -103,8 +98,6 @@ bool SDLRenderer::RenderFrame(AVFrame* frame) {
 
   // Present the frame
   Present();
-  MODULE_INFO(LOG_MODULE_RENDERER, "Frame presented successfully");
-
   return true;
 }
 

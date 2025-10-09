@@ -21,6 +21,8 @@
 #include <QWidget>
 #include <memory>
 
+#include "player/common/player_state_manager.h"
+
 namespace zenplay {
 
 class ZenPlayer;
@@ -49,6 +51,14 @@ class MainWindow : public QMainWindow {
   void onVolumeSliderValueChanged(int value);
   void updatePlaybackProgress();
   void onPlayerStateChanged();
+
+  /**
+   * @brief 处理播放器状态变化（异步 Seek 回调）
+   * @param old_state 旧状态
+   * @param new_state 新状态
+   */
+  void handlePlayerStateChanged(PlayerStateManager::PlayerState old_state,
+                                PlayerStateManager::PlayerState new_state);
 
  private:
   void setupUI();
@@ -101,6 +111,7 @@ class MainWindow : public QMainWindow {
   bool isFullscreen_;
   QString currentMediaPath_;
   int64_t totalDuration_;  // 总时长（毫秒）
+  int state_callback_id_;  // 状态回调 ID
 
   // Window properties
   QSize normalSize_;

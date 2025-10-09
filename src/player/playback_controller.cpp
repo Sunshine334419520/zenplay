@@ -76,10 +76,22 @@ PlaybackController::PlaybackController(
   } else {
     MODULE_WARN(LOG_MODULE_PLAYER, "Video decoder not opened or not available");
   }
+
+  // 启动 Seek 专用线程
+  seek_thread_ =
+      std::make_unique<std::thread>(&PlaybackController::SeekTask, this);
+  MODULE_INFO(LOG_MODULE_PLAYER, "Seek thread started");
 }
 
 PlaybackController::~PlaybackController() {
   Stop();
+
+  // 停止 Seek 队列和线程
+  seek_request_queue_.Stop();
+  if (seek_thread_ && seek_thread_->joinable()) {
+    seek_thread_->join();
+    seek_thread_.reset();
+  }
 }
 
 bool PlaybackController::Start() {
@@ -131,6 +143,9 @@ void PlaybackController::Stop() {
 
   StopAllThreads();
 
+  // 清空所有队列（packet 队列需要手动清空）
+  ClearAllQueues();
+
   // 停止播放器
   if (audio_player_) {
     audio_player_->Stop();
@@ -167,11 +182,63 @@ void PlaybackController::Resume() {
 }
 
 bool zenplay::PlaybackController::Seek(int64_t timestamp_ms) {
+  // 同步版本已弃用，请使用 SeekAsync
+  MODULE_WARN(LOG_MODULE_PLAYER,
+              "Sync Seek is deprecated, use SeekAsync instead");
   return false;
 }
 
+void PlaybackController::SeekAsync(int64_t timestamp_ms, bool backward) {
+  MODULE_INFO(LOG_MODULE_PLAYER, "SeekAsync requested: {}ms (backward: {})",
+              timestamp_ms, backward);
+
+  // 保存当前状态，用于 Seek 完成后恢复
+  auto current_state = state_manager_->GetState();
+  auto restore_state = PlayerStateManager::PlayerState::kStopped;
+
+  if (current_state == PlayerStateManager::PlayerState::kPlaying) {
+    restore_state = PlayerStateManager::PlayerState::kPlaying;
+  } else if (current_state == PlayerStateManager::PlayerState::kPaused) {
+    restore_state = PlayerStateManager::PlayerState::kPaused;
+  }
+
+  // 创建 Seek 请求
+  SeekRequest request(timestamp_ms, backward, restore_state);
+
+  // 添加到请求队列（如果队列中已有请求，新请求会替代旧请求）
+  seek_request_queue_.Push(request);
+
+  MODULE_INFO(LOG_MODULE_PLAYER, "Seek request queued");
+}
+
+void PlaybackController::ClearAllQueues() {
+  MODULE_DEBUG(LOG_MODULE_PLAYER, "Clearing all queues");
+
+  // 清空 packet 队列（使用回调释放 AVPacket*）
+  video_packet_queue_.Clear([](AVPacket* packet) {
+    if (packet) {
+      av_packet_free(&packet);
+    }
+  });
+
+  audio_packet_queue_.Clear([](AVPacket* packet) {
+    if (packet) {
+      av_packet_free(&packet);
+    }
+  });
+
+  // 清空 frame 队列
+  if (video_player_) {
+    video_player_->ClearFrames();
+  }
+  if (audio_player_) {
+    audio_player_->ClearFrames();
+  }
+
+  MODULE_DEBUG(LOG_MODULE_PLAYER, "All queues cleared");
+}
+
 void PlaybackController::DemuxTask() {
-  MODULE_INFO(LOG_MODULE_PLAYER, "Demux thread started");
   if (!demuxer_) {
     return;
   }
@@ -209,8 +276,8 @@ void PlaybackController::DemuxTask() {
       break;
     }
 
-    MODULE_DEBUG(LOG_MODULE_PLAYER, "Demuxed packet, size: {}, pts: {}",
-                 packet->size, packet->pts);
+    // MODULE_DEBUG(LOG_MODULE_PLAYER, "Demuxed packet, size: {}, pts: {}",
+    //              packet->size, packet->pts);
 
     auto demux_time_ms = TIMER_END_MS_INT(demux_read);
 
@@ -221,13 +288,9 @@ void PlaybackController::DemuxTask() {
     // 分发packet到对应的解码队列
     if (packet->stream_index == demuxer_->active_video_stream_index() &&
         video_decoder_ && video_decoder_->opened()) {
-      MODULE_DEBUG(LOG_MODULE_PLAYER, "Demuxed video packet, size: {}, pts: {}",
-                   packet->size, packet->pts);
       video_packet_queue_.Push(packet);
     } else if (packet->stream_index == demuxer_->active_audio_stream_index() &&
                audio_decoder_ && audio_decoder_->opened()) {
-      MODULE_DEBUG(LOG_MODULE_PLAYER, "Demuxed audio packet, size: {}, pts: {}",
-                   packet->size, packet->pts);
       audio_packet_queue_.Push(packet);
     } else {
       av_packet_free(&packet);
@@ -436,6 +499,140 @@ int64_t PlaybackController::GetCurrentTime() const {
 
   // 直接返回毫秒
   return static_cast<int64_t>(master_clock_ms);
+}
+
+void PlaybackController::SeekTask() {
+  MODULE_INFO(LOG_MODULE_PLAYER, "SeekTask started");
+
+  while (!state_manager_->ShouldStop()) {
+    SeekRequest request(0, false, PlayerStateManager::PlayerState::kStopped);
+
+    // 从队列获取 Seek 请求
+    if (!seek_request_queue_.Pop(request, std::chrono::milliseconds(500))) {
+      continue;
+    }
+
+    // 清空队列中的旧请求，只执行最新的
+    SeekRequest latest_request = request;
+    while (seek_request_queue_.Pop(request, std::chrono::milliseconds(0))) {
+      MODULE_DEBUG(LOG_MODULE_PLAYER, "Discarding old seek request: {}ms",
+                   request.timestamp_ms);
+      latest_request = request;
+    }
+
+    // 执行 Seek
+    MODULE_INFO(LOG_MODULE_PLAYER, "Executing seek to {}ms (backward: {})",
+                latest_request.timestamp_ms, latest_request.backward);
+
+    bool success = ExecuteSeek(latest_request);
+
+    if (success) {
+      MODULE_INFO(LOG_MODULE_PLAYER, "Seek completed successfully");
+    } else {
+      MODULE_ERROR(LOG_MODULE_PLAYER, "Seek failed");
+    }
+  }
+
+  MODULE_INFO(LOG_MODULE_PLAYER, "SeekTask stopped");
+}
+
+bool PlaybackController::ExecuteSeek(const SeekRequest& request) {
+  // 防止并发
+  if (seeking_.exchange(true)) {
+    MODULE_WARN(LOG_MODULE_PLAYER, "Already seeking, skipping");
+    return false;
+  }
+
+  try {
+    // === 步骤1: 转换到 Seeking 状态 ===
+    if (!state_manager_->TransitionToSeeking()) {
+      MODULE_ERROR(LOG_MODULE_PLAYER, "Failed to transition to Seeking state");
+      seeking_.store(false);
+      return false;
+    }
+
+    // === 步骤2: 暂停数据处理 ===
+    MODULE_DEBUG(LOG_MODULE_PLAYER, "Pausing players");
+    if (video_player_) {
+      video_player_->Pause();
+    }
+    if (audio_player_) {
+      audio_player_->Pause();
+    }
+
+    // 等待解码线程进入暂停状态（最多100ms）
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+    // === 步骤3: 清空所有队列 ===
+    ClearAllQueues();
+
+    // === 步骤4: Demuxer Seek ===
+    MODULE_DEBUG(LOG_MODULE_PLAYER, "Demuxer seeking");
+
+    // FFmpeg 使用微秒为单位
+    int64_t timestamp_us = request.timestamp_ms * 1000;
+
+    if (!demuxer_->Seek(timestamp_us, request.backward)) {
+      MODULE_ERROR(LOG_MODULE_PLAYER, "Demuxer seek failed");
+      state_manager_->TransitionToError();
+      seeking_.store(false);
+      return false;
+    }
+
+    // === 步骤5: 刷新解码器缓冲区 ===
+    MODULE_DEBUG(LOG_MODULE_PLAYER, "Flushing decoders");
+
+    if (video_decoder_ && video_decoder_->opened()) {
+      video_decoder_->FlushBuffers();
+    }
+    if (audio_decoder_ && audio_decoder_->opened()) {
+      audio_decoder_->FlushBuffers();
+    }
+
+    // === 步骤6: 重置同步控制器 ===
+    MODULE_DEBUG(LOG_MODULE_PLAYER, "Resetting sync controller");
+
+    if (av_sync_controller_) {
+      av_sync_controller_->Reset();
+    }
+
+    // 重置播放器时间戳
+    if (video_player_) {
+      video_player_->ResetTimestamps();
+    }
+    if (audio_player_) {
+      audio_player_->ResetTimestamps();
+    }
+
+    // === 步骤7: 恢复状态 ===
+    MODULE_DEBUG(LOG_MODULE_PLAYER, "Restoring state: {}",
+                 PlayerStateManager::GetStateName(request.restore_state));
+
+    // 转换到目标状态
+    if (request.restore_state == PlayerStateManager::PlayerState::kPlaying) {
+      if (video_player_) {
+        video_player_->Resume();
+      }
+      if (audio_player_) {
+        audio_player_->Resume();
+      }
+      state_manager_->TransitionToPlaying();
+    } else if (request.restore_state ==
+               PlayerStateManager::PlayerState::kPaused) {
+      state_manager_->TransitionToPaused();
+    } else {
+      state_manager_->TransitionToStopped();
+    }
+
+    seeking_.store(false);
+    return true;
+
+  } catch (const std::exception& e) {
+    MODULE_ERROR(LOG_MODULE_PLAYER, "Seek exception: {}", e.what());
+    state_manager_->TransitionToError();
+    seeking_.store(false);
+    return false;
+  }
 }
 
 }  // namespace zenplay

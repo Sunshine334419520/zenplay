@@ -3,7 +3,7 @@
 #include <memory>
 #include <string>
 
-#include "../renderer.h"
+#include "player/video/render/renderer.h"
 
 extern "C" {
 #include <SDL2/SDL.h>

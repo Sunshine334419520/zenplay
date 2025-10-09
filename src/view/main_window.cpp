@@ -1,10 +1,12 @@
 #include "main_window.h"
 
 #include <QApplication>
+#include <QDebug>
 #include <QDesktopServices>
 #include <QHBoxLayout>
 #include <QKeySequence>
 #include <QMessageBox>
+#include <QMetaObject>
 #include <QScreen>
 #include <QUrl>
 #include <QWindow>
@@ -46,8 +48,22 @@ MainWindow::MainWindow(QWidget* parent)
       updateTimer_(new QTimer(this)),
       isDraggingProgress_(false),
       isFullscreen_(false),
-      totalDuration_(0) {
+      totalDuration_(0),
+      state_callback_id_(-1) {
   setupUI();
+
+  // ✅ 注册状态变更监听（用于异步 Seek）
+  state_callback_id_ = player_->RegisterStateChangeCallback(
+      [this](PlayerStateManager::PlayerState old_state,
+             PlayerStateManager::PlayerState new_state) {
+        // Qt 要求在主线程更新 UI，使用 QMetaObject::invokeMethod
+        QMetaObject::invokeMethod(
+            this,
+            [this, old_state, new_state]() {
+              handlePlayerStateChanged(old_state, new_state);
+            },
+            Qt::QueuedConnection);
+      });
 
   // Connect timer for progress updates
   connect(updateTimer_, &QTimer::timeout, this,
@@ -61,7 +77,13 @@ MainWindow::MainWindow(QWidget* parent)
   setWindowIcon(QIcon(":/icons/zenplay.png"));  // You'll need to add this icon
 }
 
-MainWindow::~MainWindow() = default;
+MainWindow::~MainWindow() {
+  // ✅ 取消注册状态回调
+  if (state_callback_id_ != -1 && player_) {
+    player_->UnregisterStateChangeCallback(state_callback_id_);
+    state_callback_id_ = -1;
+  }
+}
 
 void MainWindow::setupUI() {
   setupMenuBar();
@@ -450,10 +472,19 @@ void MainWindow::onProgressSliderReleased() {
     return;
   }
 
-  int seekTime = progressSlider_->value();
-  if (player_->Seek(seekTime * 1000)) {  // Convert to milliseconds
-    statusLabel_->setText(tr("Seeking..."));
+  if (!player_->IsOpened()) {
+    isDraggingProgress_ = false;
+    return;
   }
+
+  // 计算目标时间（秒转毫秒）
+  int64_t seekTime = static_cast<int64_t>(progressSlider_->value()) * 1000;
+
+  // ✅ 异步 Seek，立即返回，不阻塞 UI
+  player_->SeekAsync(seekTime);
+
+  // 注意：不在这里显示 "Seeking..." 状态
+  // 状态更新由 handlePlayerStateChanged 回调处理
 
   isDraggingProgress_ = false;
 }
@@ -571,6 +602,126 @@ QString MainWindow::formatTime(int64_t milliseconds) const {
 }
 
 void MainWindow::onPlayerStateChanged() {
+  updateControlBarState();
+}
+
+void MainWindow::handlePlayerStateChanged(
+    PlayerStateManager::PlayerState old_state,
+    PlayerStateManager::PlayerState new_state) {
+  using State = PlayerStateManager::PlayerState;
+
+  // 记录状态变化
+  qDebug() << "Player state changed:"
+           << PlayerStateManager::GetStateName(old_state) << "->"
+           << PlayerStateManager::GetStateName(new_state);
+
+  switch (new_state) {
+    case State::kSeeking:
+      // ✅ 显示 Seeking 状态
+      statusLabel_->setText(tr("Seeking..."));
+      statusLabel_->setStyleSheet("color: #FFA500;");  // 橙色
+
+      // 禁用控制按钮，防止重复 Seek
+      progressSlider_->setEnabled(false);
+      playPauseBtn_->setEnabled(false);
+      stopBtn_->setEnabled(false);
+
+      // 显示等待光标
+      setCursor(Qt::WaitCursor);
+      break;
+
+    case State::kPlaying:
+      if (old_state == State::kSeeking) {
+        // ✅ Seek 完成，恢复播放
+        statusLabel_->setText(tr("Playing"));
+        statusLabel_->setStyleSheet("color: #00FF00;");  // 绿色
+
+        // 恢复控制按钮
+        progressSlider_->setEnabled(true);
+        playPauseBtn_->setEnabled(true);
+        stopBtn_->setEnabled(true);
+
+        // 恢复正常光标
+        setCursor(Qt::ArrowCursor);
+      } else {
+        statusLabel_->setText(tr("Playing"));
+        statusLabel_->setStyleSheet("color: #00FF00;");
+      }
+
+      playPauseBtn_->setText(tr("⏸ Pause"));
+
+      if (!updateTimer_->isActive()) {
+        updateTimer_->start();
+      }
+      break;
+
+    case State::kPaused:
+      if (old_state == State::kSeeking) {
+        // ✅ Seek 完成，保持暂停
+        statusLabel_->setText(tr("Paused"));
+        statusLabel_->setStyleSheet("color: #FFFF00;");  // 黄色
+
+        // 恢复控制按钮
+        progressSlider_->setEnabled(true);
+        playPauseBtn_->setEnabled(true);
+        stopBtn_->setEnabled(true);
+
+        // 恢复正常光标
+        setCursor(Qt::ArrowCursor);
+      } else {
+        statusLabel_->setText(tr("Paused"));
+        statusLabel_->setStyleSheet("color: #FFFF00;");
+      }
+
+      playPauseBtn_->setText(tr("▶ Play"));
+      updateTimer_->stop();
+      break;
+
+    case State::kStopped:
+      statusLabel_->setText(tr("Stopped"));
+      statusLabel_->setStyleSheet("color: #808080;");  // 灰色
+
+      progressSlider_->setEnabled(true);
+      playPauseBtn_->setEnabled(true);
+      stopBtn_->setEnabled(true);
+      setCursor(Qt::ArrowCursor);
+
+      playPauseBtn_->setText(tr("▶ Play"));
+      updateTimer_->stop();
+      break;
+
+    case State::kBuffering:
+      statusLabel_->setText(tr("Buffering..."));
+      statusLabel_->setStyleSheet("color: #00FFFF;");  // 青色
+      break;
+
+    case State::kError:
+      if (old_state == State::kSeeking) {
+        // ❌ Seek 失败
+        QMessageBox::warning(
+            this, tr("Seek Error"),
+            tr("Failed to seek to the specified position. "
+               "The file may not support seeking or the position is invalid."));
+      }
+
+      statusLabel_->setText(tr("Error"));
+      statusLabel_->setStyleSheet("color: #FF0000;");  // 红色
+
+      progressSlider_->setEnabled(true);
+      playPauseBtn_->setEnabled(true);
+      stopBtn_->setEnabled(true);
+      setCursor(Qt::ArrowCursor);
+
+      updateTimer_->stop();
+      break;
+
+    default:
+      statusLabel_->setText(tr("Unknown State"));
+      statusLabel_->setStyleSheet("color: #FFFFFF;");
+      break;
+  }
+
+  // 更新控制栏状态
   updateControlBarState();
 }
 

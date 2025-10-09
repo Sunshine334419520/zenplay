@@ -204,11 +204,55 @@ bool ZenPlayer::Stop() {
 }
 
 bool ZenPlayer::Seek(int64_t timestamp, bool backward) {
+  MODULE_WARN(LOG_MODULE_PLAYER,
+              "Sync Seek is deprecated, use SeekAsync instead");
+  // 为了向后兼容，调用异步版本
+  SeekAsync(timestamp, backward);
+  return true;  // 立即返回，不等待结果
+}
+
+void ZenPlayer::SeekAsync(int64_t timestamp_ms, bool backward) {
+  MODULE_INFO(LOG_MODULE_PLAYER, "ZenPlayer::SeekAsync to {}ms", timestamp_ms);
+
+  // 验证前提条件
   if (!is_opened_ || !playback_controller_) {
-    return false;
+    MODULE_ERROR(LOG_MODULE_PLAYER, "Cannot seek: player not opened");
+    // 通过状态通知错误
+    state_manager_->TransitionToError();
+    return;
   }
 
-  return playback_controller_->Seek(timestamp);
+  // 验证时间戳范围
+  int64_t duration = GetDuration();
+  if (timestamp_ms < 0 || (duration > 0 && timestamp_ms > duration)) {
+    MODULE_ERROR(LOG_MODULE_PLAYER,
+                 "Invalid seek timestamp: {}ms (duration: {}ms)", timestamp_ms,
+                 duration);
+    state_manager_->TransitionToError();
+    return;
+  }
+
+  // 调用 PlaybackController 的异步 Seek
+  playback_controller_->SeekAsync(timestamp_ms, backward);
+}
+
+int ZenPlayer::RegisterStateChangeCallback(
+    PlayerStateManager::StateChangeCallback callback) {
+  if (!state_manager_) {
+    MODULE_ERROR(LOG_MODULE_PLAYER,
+                 "Cannot register callback: state_manager is null");
+    return -1;
+  }
+  return state_manager_->RegisterStateChangeCallback(std::move(callback));
+}
+
+void ZenPlayer::UnregisterStateChangeCallback(int callback_id) {
+  if (!state_manager_) {
+    MODULE_ERROR(LOG_MODULE_PLAYER,
+                 "Cannot unregister callback: state_manager is null");
+    return;
+  }
+  state_manager_->UnregisterStateChangeCallback(callback_id);
 }
 
 int64_t ZenPlayer::GetDuration() const {

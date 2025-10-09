@@ -175,6 +175,16 @@ void AudioPlayer::ClearFrames() {
   }
 }
 
+void AudioPlayer::ResetTimestamps() {
+  std::lock_guard<std::mutex> lock(pts_mutex_);
+
+  // 重置 PTS 基准
+  base_audio_pts_ = 0.0;
+  total_samples_played_ = 0;
+
+  MODULE_INFO(LOG_MODULE_AUDIO, "AudioPlayer timestamps reset");
+}
+
 bool AudioPlayer::IsPlaying() const {
   auto state = state_manager_->GetState();
   return state == PlayerStateManager::PlayerState::kPlaying ||

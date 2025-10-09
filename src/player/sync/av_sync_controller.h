@@ -66,6 +66,11 @@ class AVSyncController {
   void SetSyncMode(SyncMode mode);
 
   /**
+   * @brief 重置同步状态（Seek 后调用）
+   */
+  void Reset();
+
+  /**
    * @brief 获取当前同步模式
    */
   SyncMode GetSyncMode() const;
@@ -138,11 +143,6 @@ class AVSyncController {
    * @brief 获取同步统计信息
    */
   SyncStats GetSyncStats() const;
-
-  /**
-   * @brief 重置同步状态
-   */
-  void Reset();
 
   /**
    * @brief 设置同步参数

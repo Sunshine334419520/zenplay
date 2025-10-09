@@ -102,6 +102,11 @@ class VideoPlayer {
   void ClearFrames();
 
   /**
+   * @brief 重置时间戳状态（Seek 后调用）
+   */
+  void ResetTimestamps();
+
+  /**
    * @brief 检查是否正在播放
    */
   bool IsPlaying() const;
