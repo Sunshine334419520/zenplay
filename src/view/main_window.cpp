@@ -18,6 +18,7 @@
 // available
 #endif
 
+#include "player/common/log_manager.h"
 #include "player/common/player_state_manager.h"
 #include "player/zen_player.h"
 
@@ -523,21 +524,17 @@ void MainWindow::updatePlaybackProgress() {
     // 获取真实播放时间（毫秒）
     int64_t currentTimeMs = player_->GetCurrentPlayTime();
 
-    // 如果GetCurrentPlayTime()还未实现或返回0，使用fallback逻辑
-    if (currentTimeMs == 0) {
-      // Fallback: 使用进度条当前值（秒）转换为毫秒，然后模拟递增
-      int currentSeconds = progressSlider_->value();
+    // ✅ 移除 fallback 逻辑！
+    // 问题：Seek 后 GetCurrentPlayTime() 可能暂时返回 0，
+    // 导致 fallback 从进度条当前值（可能是0）开始递增
+    //
+    // 正确做法：信任 GetCurrentPlayTime() 的返回值
+    // 如果返回 0，可能是：
+    // 1. 还未开始播放（正常）
+    // 2. Seek 刚完成，时钟还未更新（应该等待，不要用 fallback）
 
-      // 修复Bug：定时器每100ms更新一次，所以应该递增100ms
-      static int updateCount = 0;
-      updateCount++;
-      if (updateCount >= 10) {  // 10 * 100ms = 1秒
-        currentSeconds += 1;
-        updateCount = 0;
-      }
-
-      currentTimeMs = static_cast<int64_t>(currentSeconds) * 1000;
-    }
+    // 添加调试日志
+    qDebug() << "updatePlaybackProgress: currentTimeMs =" << currentTimeMs;
 
     if (currentTimeMs <= totalDuration_) {
       updateProgressDisplay(currentTimeMs, totalDuration_);
@@ -550,6 +547,7 @@ void MainWindow::updateProgressDisplay(int64_t currentTimeMs,
   if (!isDraggingProgress_ && progressSlider_ && timeLabel_) {
     // 进度条使用秒为单位以避免溢出
     int currentSeconds = static_cast<int>(currentTimeMs / 1000);
+    ZENPLAY_DEBUG("Updating progress to {} s", currentSeconds);
     progressSlider_->setValue(currentSeconds);
     timeLabel_->setText(formatTime(currentTimeMs));
   }
@@ -668,6 +666,13 @@ void MainWindow::handlePlayerStateChanged(
 
         // 恢复正常光标
         setCursor(Qt::ArrowCursor);
+
+        // ✅ 关键修复：立即更新进度条到当前播放位置
+        // Seek 完成后立即同步一次，避免显示旧值或 0
+        int64_t currentTimeMs = player_->GetCurrentPlayTime();
+        qDebug() << "Seek completed (paused), updating progress to:"
+                 << currentTimeMs << "ms";
+        updateProgressDisplay(currentTimeMs, totalDuration_);
       } else {
         statusLabel_->setText(tr("Paused"));
         statusLabel_->setStyleSheet("color: #FFFF00;");

@@ -587,11 +587,13 @@ bool PlaybackController::ExecuteSeek(const SeekRequest& request) {
       audio_decoder_->FlushBuffers();
     }
 
-    // === 步骤6: 重置同步控制器 ===
-    MODULE_DEBUG(LOG_MODULE_PLAYER, "Resetting sync controller");
+    // === 步骤6: 重置同步控制器到目标位置 ===
+    MODULE_DEBUG(LOG_MODULE_PLAYER,
+                 "Resetting sync controller to target position");
 
     if (av_sync_controller_) {
-      av_sync_controller_->Reset();
+      // ✅ 使用新的 ResetForSeek，传入目标位置
+      av_sync_controller_->ResetForSeek(request.timestamp_ms);
     }
 
     // 重置播放器时间戳

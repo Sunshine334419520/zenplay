@@ -167,19 +167,25 @@ AVSyncController::SyncStats AVSyncController::GetSyncStats() const {
 void AVSyncController::Reset() {
   {
     std::lock_guard<std::mutex> lock(clock_mutex_);
+
+    auto now = std::chrono::steady_clock::now();
+
+    // 完全重置所有时钟
     audio_clock_.pts_ms.store(0.0);
-    audio_clock_.system_time = {};
+    audio_clock_.system_time = now;
     audio_clock_.drift = 0.0;
 
     video_clock_.pts_ms.store(0.0);
-    video_clock_.system_time = {};
+    video_clock_.system_time = now;
     video_clock_.drift = 0.0;
 
     external_clock_.pts_ms.store(0.0);
-    external_clock_.system_time = {};
+    external_clock_.system_time = now;
     external_clock_.drift = 0.0;
 
-    is_initialized_ = false;
+    play_start_time_ = now;
+
+    // 完全重置，清空所有起始 PTS 基准
     audio_start_initialized_ = false;
     audio_start_pts_ms_ = 0.0;
     video_start_initialized_ = false;
@@ -188,6 +194,45 @@ void AVSyncController::Reset() {
 
   {
     std::lock_guard<std::mutex> lock(stats_mutex_);
+    stats_ = SyncStats{};
+    std::fill(sync_error_history_.begin(), sync_error_history_.end(), 0.0);
+    sync_history_index_ = 0;
+  }
+}
+
+void AVSyncController::ResetForSeek(int64_t target_pts_ms) {
+  {
+    std::lock_guard<std::mutex> lock(clock_mutex_);
+
+    auto now = std::chrono::steady_clock::now();
+    double target_ms = static_cast<double>(target_pts_ms);
+
+    // ✅ 关键：设置时钟为目标位置，这样 GetCurrentTime() 就会返回正确值
+    audio_clock_.pts_ms.store(target_ms);
+    audio_clock_.system_time = now;
+    audio_clock_.drift = 0.0;
+
+    video_clock_.pts_ms.store(target_ms);
+    video_clock_.system_time = now;
+    video_clock_.drift = 0.0;
+
+    external_clock_.pts_ms.store(target_ms);
+    external_clock_.system_time = now;
+    external_clock_.drift = 0.0;
+
+    // ✅ 更新 play_start_time_，使其偏移到目标位置
+    // EXTERNAL_MASTER 模式下：now - play_start_time_ = target_ms
+    // 所以：play_start_time_ = now - target_ms
+    play_start_time_ = now - std::chrono::milliseconds(target_pts_ms);
+
+    // ✅ 保持起始 PTS 基准不变，因为我们仍然使用相同的 normalization base
+    // 如果 audio_start_pts_ms_ = 1000ms，target = 5000ms
+    // 那么下一帧 PTS 如果是 6000ms，normalized = 6000 - 1000 = 5000ms（正确）
+  }
+
+  {
+    std::lock_guard<std::mutex> lock(stats_mutex_);
+    // Seek 时清空统计，但不影响时钟
     stats_ = SyncStats{};
     std::fill(sync_error_history_.begin(), sync_error_history_.end(), 0.0);
     sync_history_index_ = 0;

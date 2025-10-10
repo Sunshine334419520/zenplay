@@ -329,10 +329,10 @@ double VideoPlayer::CalculateTimeAdjustment(
   if (sync_mode == AVSyncController::SyncMode::EXTERNAL_MASTER) {
     // 外部时钟模式（仅视频）：基于播放进度计算
     time_adjustment_ms = normalized_pts_ms - elapsed_ms;
-    MODULE_DEBUG(LOG_MODULE_VIDEO,
-                 "External clock mode: PTS={:.2f}ms, elapsed={:.2f}ms, "
-                 "adjustment={:.2f}ms",
-                 normalized_pts_ms, elapsed_ms, time_adjustment_ms);
+    // MODULE_DEBUG(LOG_MODULE_VIDEO,
+    //              "External clock mode: PTS={:.2f}ms, elapsed={:.2f}ms, "
+    //              "adjustment={:.2f}ms",
+    //              normalized_pts_ms, elapsed_ms, time_adjustment_ms);
   } else {
     // 音视频同步模式：计算同步偏移量
     double sync_offset_ms = normalized_pts_ms - master_clock_ms;
@@ -341,11 +341,11 @@ double VideoPlayer::CalculateTimeAdjustment(
 
     // 时间调整 = 基础调整 + 同步偏移
     time_adjustment_ms = (normalized_pts_ms - elapsed_ms) + sync_offset_ms;
-    MODULE_DEBUG(LOG_MODULE_VIDEO,
-                 "AV sync mode: PTS={:.2f}ms, master={:.2f}ms, "
-                 "sync_offset={:.2f}ms, adjustment={:.2f}ms",
-                 normalized_pts_ms, master_clock_ms, sync_offset_ms,
-                 time_adjustment_ms);
+    // MODULE_DEBUG(LOG_MODULE_VIDEO,
+    //              "AV sync mode: PTS={:.2f}ms, master={:.2f}ms, "
+    //              "sync_offset={:.2f}ms, adjustment={:.2f}ms",
+    //              normalized_pts_ms, master_clock_ms, sync_offset_ms,
+    //              time_adjustment_ms);
   }
 
   return time_adjustment_ms;

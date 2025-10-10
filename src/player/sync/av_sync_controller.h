@@ -66,9 +66,15 @@ class AVSyncController {
   void SetSyncMode(SyncMode mode);
 
   /**
-   * @brief 重置同步状态（Seek 后调用）
+   * @brief 重置同步状态（Stop 或非 Seek 场景）
    */
   void Reset();
+
+  /**
+   * @brief 重置同步状态到指定位置（Seek 专用）
+   * @param target_pts_ms Seek 的目标位置（毫秒）
+   */
+  void ResetForSeek(int64_t target_pts_ms);
 
   /**
    * @brief 获取当前同步模式
