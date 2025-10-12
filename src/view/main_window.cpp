@@ -524,18 +524,6 @@ void MainWindow::updatePlaybackProgress() {
     // 获取真实播放时间（毫秒）
     int64_t currentTimeMs = player_->GetCurrentPlayTime();
 
-    // ✅ 移除 fallback 逻辑！
-    // 问题：Seek 后 GetCurrentPlayTime() 可能暂时返回 0，
-    // 导致 fallback 从进度条当前值（可能是0）开始递增
-    //
-    // 正确做法：信任 GetCurrentPlayTime() 的返回值
-    // 如果返回 0，可能是：
-    // 1. 还未开始播放（正常）
-    // 2. Seek 刚完成，时钟还未更新（应该等待，不要用 fallback）
-
-    // 添加调试日志
-    qDebug() << "updatePlaybackProgress: currentTimeMs =" << currentTimeMs;
-
     if (currentTimeMs <= totalDuration_) {
       updateProgressDisplay(currentTimeMs, totalDuration_);
     }
@@ -547,7 +535,6 @@ void MainWindow::updateProgressDisplay(int64_t currentTimeMs,
   if (!isDraggingProgress_ && progressSlider_ && timeLabel_) {
     // 进度条使用秒为单位以避免溢出
     int currentSeconds = static_cast<int>(currentTimeMs / 1000);
-    ZENPLAY_DEBUG("Updating progress to {} s", currentSeconds);
     progressSlider_->setValue(currentSeconds);
     timeLabel_->setText(formatTime(currentTimeMs));
   }

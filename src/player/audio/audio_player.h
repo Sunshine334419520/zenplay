@@ -191,6 +191,9 @@ class AudioPlayer {
   int src_channels_;
   AVSampleFormat src_format_;
   bool format_initialized_;
+
+  // 音频渲染状态跟踪
+  bool last_fill_had_real_data_;  // 上次 FillAudioBuffer 是否有真实音频数据
 };
 
 }  // namespace zenplay

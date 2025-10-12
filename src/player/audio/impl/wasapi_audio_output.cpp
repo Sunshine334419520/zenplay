@@ -8,6 +8,8 @@
 // COM库和错误处理
 #pragma comment(lib, "ole32.lib")
 
+#include "player/common/log_manager.h"
+
 namespace zenplay {
 
 WasapiAudioOutput::WasapiAudioOutput()
@@ -65,10 +67,14 @@ bool WasapiAudioOutput::Init(const AudioSpec& spec,
 
 bool WasapiAudioOutput::Start() {
   if (is_playing_.load()) {
+    MODULE_WARN(LOG_MODULE_AUDIO, "WASAPI already playing");
     return true;
   }
 
+  MODULE_INFO(LOG_MODULE_AUDIO, "Starting WASAPI audio output");
+
   if (!StartAudioService()) {
+    MODULE_ERROR(LOG_MODULE_AUDIO, "Failed to start WASAPI audio service");
     return false;
   }
 
@@ -80,6 +86,7 @@ bool WasapiAudioOutput::Start() {
       std::make_unique<std::thread>(&WasapiAudioOutput::AudioThreadMain, this);
 
   is_playing_ = true;
+  MODULE_INFO(LOG_MODULE_AUDIO, "WASAPI audio output started successfully");
   return true;
 }
 
@@ -230,10 +237,10 @@ bool WasapiAudioOutput::ConfigureAudioFormat() {
     return false;
   }
 
-  // 初始化音频客户端
+  // 初始化音频客户端（使用轮询模式，不需要事件回调）
   hr = audio_client_->Initialize(AUDCLNT_SHAREMODE_SHARED,
-                                 AUDCLNT_STREAMFLAGS_EVENTCALLBACK,
-                                 10000000,  // 1秒的缓冲区
+                                 0,         // 不使用特殊标志，采用轮询模式
+                                 10000000,  // 1秒的缓冲区（100ns 单位）
                                  0,         // 共享模式下为0
                                  wave_format_, nullptr);
 
@@ -264,19 +271,37 @@ bool WasapiAudioOutput::ConfigureAudioFormat() {
 
 bool WasapiAudioOutput::StartAudioService() {
   if (!audio_client_) {
+    MODULE_ERROR(LOG_MODULE_AUDIO, "WASAPI audio_client_ is null");
     return false;
   }
 
   HRESULT hr = audio_client_->Start();
-  return SUCCEEDED(hr);
+  if (FAILED(hr)) {
+    MODULE_ERROR(LOG_MODULE_AUDIO,
+                 "WASAPI IAudioClient::Start() failed with HRESULT: 0x{:08X}",
+                 static_cast<unsigned int>(hr));
+    return false;
+  }
+
+  MODULE_INFO(LOG_MODULE_AUDIO, "WASAPI IAudioClient::Start() succeeded");
+  return true;
 }
 
 void WasapiAudioOutput::AudioThreadMain() {
+  MODULE_INFO(LOG_MODULE_AUDIO, "WASAPI audio thread started");
+
   // 设置线程优先级
   SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
 
   const UINT32 frame_size = wave_format_->nBlockAlign;
   const UINT32 buffer_duration_ms = 10;  // 10ms缓冲
+
+  MODULE_INFO(
+      LOG_MODULE_AUDIO,
+      "WASAPI thread loop starting: buffer_frame_count={}, frame_size={}",
+      buffer_frame_count_, frame_size);
+
+  int callback_count = 0;
 
   while (!should_stop_.load()) {
     if (is_paused_.load()) {
@@ -288,6 +313,8 @@ void WasapiAudioOutput::AudioThreadMain() {
     UINT32 padding_frames;
     HRESULT hr = audio_client_->GetCurrentPadding(&padding_frames);
     if (FAILED(hr)) {
+      MODULE_ERROR(LOG_MODULE_AUDIO, "GetCurrentPadding failed: 0x{:08X}",
+                   static_cast<unsigned int>(hr));
       break;
     }
 
@@ -302,6 +329,8 @@ void WasapiAudioOutput::AudioThreadMain() {
     BYTE* render_buffer;
     hr = render_client_->GetBuffer(available_frames, &render_buffer);
     if (FAILED(hr)) {
+      MODULE_ERROR(LOG_MODULE_AUDIO, "GetBuffer failed: 0x{:08X}",
+                   static_cast<unsigned int>(hr));
       break;
     }
 
@@ -311,7 +340,25 @@ void WasapiAudioOutput::AudioThreadMain() {
     // 调用用户回调获取音频数据
     int bytes_filled = 0;
     if (audio_callback_) {
+      if (callback_count == 0) {
+        MODULE_INFO(LOG_MODULE_AUDIO,
+                    "About to call audio_callback_ for the first time");
+      }
+
       bytes_filled = audio_callback_(user_data_, render_buffer, bytes_to_fill);
+
+      if (callback_count == 0) {
+        MODULE_INFO(LOG_MODULE_AUDIO,
+                    "First audio_callback_ returned: {} bytes", bytes_filled);
+      }
+
+      if (++callback_count % 100 == 0) {
+        MODULE_DEBUG(LOG_MODULE_AUDIO,
+                     "WASAPI callback called {} times, last fill: {} bytes",
+                     callback_count, bytes_filled);
+      }
+    } else {
+      MODULE_ERROR(LOG_MODULE_AUDIO, "audio_callback_ is null!");
     }
 
     // 如果回调没有提供足够数据，用静音填充
@@ -322,12 +369,18 @@ void WasapiAudioOutput::AudioThreadMain() {
     // 释放缓冲区
     hr = render_client_->ReleaseBuffer(available_frames, 0);
     if (FAILED(hr)) {
+      MODULE_ERROR(LOG_MODULE_AUDIO, "ReleaseBuffer failed: 0x{:08X}",
+                   static_cast<unsigned int>(hr));
       break;
     }
 
     // 短暂休眠
     Sleep(buffer_duration_ms);
   }
+
+  MODULE_INFO(LOG_MODULE_AUDIO,
+              "WASAPI audio thread exiting, total callbacks: {}",
+              callback_count);
 }
 
 WAVEFORMATEX* WasapiAudioOutput::CreateWaveFormat(const AudioSpec& spec) {

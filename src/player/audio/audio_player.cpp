@@ -10,6 +10,8 @@ extern "C" {
 }
 
 #include "../common/log_manager.h"
+#include "../common/timer_util.h"
+#include "../stats/statistics_manager.h"
 
 namespace zenplay {
 
@@ -27,7 +29,8 @@ AudioPlayer::AudioPlayer(PlayerStateManager* state_manager,
       src_sample_rate_(0),
       src_channels_(0),
       src_format_(AV_SAMPLE_FMT_NONE),
-      format_initialized_(false) {}
+      format_initialized_(false),
+      last_fill_had_real_data_(false) {}
 
 AudioPlayer::~AudioPlayer() {
   Cleanup();
@@ -51,7 +54,11 @@ bool AudioPlayer::Init(const AudioConfig& config) {
   }
 
   // 初始化音频输出设备
-  if (!audio_output_->Init(output_spec_, AudioOutputCallback, this)) {
+  zenplay::AudioOutputCallback callback = &AudioPlayer::AudioOutputCallback;
+  MODULE_INFO(LOG_MODULE_AUDIO, "Setting up audio callback, this={}",
+              (void*)this);
+
+  if (!audio_output_->Init(output_spec_, callback, this)) {
     MODULE_ERROR(LOG_MODULE_AUDIO, "Failed to initialize audio output device");
     return false;
   }
@@ -135,6 +142,9 @@ float AudioPlayer::GetVolume() const {
 
 bool AudioPlayer::PushFrame(AVFramePtr frame) {
   if (!frame || state_manager_->ShouldStop()) {
+    MODULE_DEBUG(LOG_MODULE_AUDIO,
+                 "PushFrame rejected: frame={}, should_stop={}",
+                 (void*)frame.get(), state_manager_->ShouldStop());
     return false;
   }
 
@@ -144,6 +154,8 @@ bool AudioPlayer::PushFrame(AVFramePtr frame) {
     if (base_audio_pts_ == 0.0) {  // 双重检查
       base_audio_pts_ = static_cast<double>(frame->pts);
       total_samples_played_ = 0;
+      MODULE_INFO(LOG_MODULE_AUDIO, "Audio base PTS set to: {}",
+                  base_audio_pts_);
     }
   }
 
@@ -153,10 +165,14 @@ bool AudioPlayer::PushFrame(AVFramePtr frame) {
   if (frame_queue_.size() >= MAX_QUEUE_SIZE) {
     // 丢弃最老的帧
     frame_queue_.pop();
+    MODULE_WARN(LOG_MODULE_AUDIO, "Audio queue full, dropping oldest frame");
   }
 
   frame_queue_.push(std::move(frame));
   frame_available_.notify_one();
+
+  MODULE_DEBUG(LOG_MODULE_AUDIO, "Audio frame pushed, queue size: {}",
+               frame_queue_.size());
 
   return true;
 }
@@ -223,8 +239,22 @@ void AudioPlayer::Cleanup() {
 int AudioPlayer::AudioOutputCallback(void* user_data,
                                      uint8_t* buffer,
                                      int buffer_size) {
+  static int call_count = 0;
+  if (++call_count % 100 == 0) {
+    MODULE_DEBUG(LOG_MODULE_AUDIO,
+                 "AudioOutputCallback called {} times, buffer_size={}",
+                 call_count, buffer_size);
+  }
+
   AudioPlayer* player = static_cast<AudioPlayer*>(user_data);
+
+  TIMER_START(audio_render);
   int bytes_filled = player->FillAudioBuffer(buffer, buffer_size);
+  auto render_time_ms = TIMER_END_MS(audio_render);
+
+  // ✅ 只有真正渲染了音频数据才更新统计（不包括静音填充）
+  bool audio_rendered = player->last_fill_had_real_data_;
+  STATS_UPDATE_RENDER(false, audio_rendered, false, render_time_ms);
 
   // 更新音频时钟
   if (bytes_filled > 0 && player->sync_controller_) {
@@ -351,6 +381,9 @@ int AudioPlayer::FillAudioBuffer(uint8_t* buffer, int buffer_size) {
   int bytes_per_sample =
       config_.target_channels * (config_.target_bits_per_sample / 8);
 
+  // ✅ 记录是否从队列中实际获取了音频数据
+  bool has_real_audio_data = false;
+
   while (bytes_filled < buffer_size) {
     // 首先尝试从内部缓冲区读取
     if (buffer_read_pos_ < internal_buffer_.size()) {
@@ -363,9 +396,14 @@ int AudioPlayer::FillAudioBuffer(uint8_t* buffer, int buffer_size) {
       bytes_filled += bytes_to_copy;
       buffer_read_pos_ += bytes_to_copy;
 
+      // ✅ 修复：读完内部缓冲区后清空，而不是只重置位置
       if (buffer_read_pos_ >= internal_buffer_.size()) {
-        buffer_read_pos_ = 0;  // 重置缓冲区位置
+        internal_buffer_.clear();  // 清空已消费的数据
+        buffer_read_pos_ = 0;
       }
+
+      // ✅ 内部缓冲区有数据说明之前获取过真实音频
+      has_real_audio_data = true;
 
       continue;
     }
@@ -373,20 +411,34 @@ int AudioPlayer::FillAudioBuffer(uint8_t* buffer, int buffer_size) {
     // 内部缓冲区为空，尝试获取新的音频帧
     std::unique_lock<std::mutex> lock(frame_queue_mutex_);
     if (frame_queue_.empty()) {
+      MODULE_DEBUG(LOG_MODULE_AUDIO, "Audio queue empty, filled {} bytes",
+                   bytes_filled);
       break;  // 没有更多数据
     }
 
+    size_t queue_size_before = frame_queue_.size();
     AVFramePtr frame = std::move(frame_queue_.front());
     frame_queue_.pop();
     lock.unlock();
 
+    MODULE_DEBUG(
+        LOG_MODULE_AUDIO,
+        "Consumed audio frame from queue (size {} -> {}), pts={}, samples={}",
+        queue_size_before, queue_size_before - 1, frame->pts,
+        frame->nb_samples);
+
     if (!frame) {
+      MODULE_WARN(LOG_MODULE_AUDIO, "Got null frame from queue");
       break;  // EOF
     }
+
+    // ✅ 标记从队列获取了真实音频帧
+    has_real_audio_data = true;
 
     // 初始化重采样器(如果需要)
     if (!format_initialized_) {
       if (!InitializeResampler(frame.get())) {
+        MODULE_ERROR(LOG_MODULE_AUDIO, "Failed to initialize resampler");
         break;
       }
     }
@@ -395,8 +447,12 @@ int AudioPlayer::FillAudioBuffer(uint8_t* buffer, int buffer_size) {
     int resampled_samples =
         ResampleFrame(frame.get(), resampled_data_, max_resampled_samples_);
     if (resampled_samples <= 0) {
+      MODULE_WARN(LOG_MODULE_AUDIO, "Resample failed, samples={}",
+                  resampled_samples);
       continue;
     }
+
+    MODULE_DEBUG(LOG_MODULE_AUDIO, "Resampled {} samples", resampled_samples);
 
     // 计算重采样后的数据大小
     int resampled_bytes = resampled_samples * bytes_per_sample;
@@ -411,8 +467,17 @@ int AudioPlayer::FillAudioBuffer(uint8_t* buffer, int buffer_size) {
   // 如果没有足够的数据，用静音填充
   if (bytes_filled < buffer_size) {
     memset(buffer + bytes_filled, 0, buffer_size - bytes_filled);
+    if (!has_real_audio_data) {
+      MODULE_DEBUG(LOG_MODULE_AUDIO,
+                   "Filled with silence, no audio data available");
+    }
     bytes_filled = buffer_size;
   }
+
+  // ✅ 返回是否有真实音频数据的标志（通过修改返回值的语义）
+  // 但为了兼容性，我们需要在调用处判断
+  // 这里我们将 has_real_audio_data 存储到成员变量
+  last_fill_had_real_data_ = has_real_audio_data;
 
   return bytes_filled;
 }
