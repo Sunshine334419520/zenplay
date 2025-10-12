@@ -12,19 +12,6 @@ VideoPlayer::VideoPlayer(PlayerStateManager* state_manager,
                          AVSyncController* sync_controller)
     : state_manager_(state_manager), av_sync_controller_(sync_controller) {}
 
-double VideoPlayer::GetNormalizedVideoPts(double raw_pts_ms) {
-  if (raw_pts_ms < 0.0) {
-    return raw_pts_ms;
-  }
-
-  if (!first_pts_initialized_) {
-    first_video_pts_ms_ = raw_pts_ms;
-    first_pts_initialized_ = true;
-  }
-
-  return raw_pts_ms - first_video_pts_ms_;
-}
-
 VideoPlayer::~VideoPlayer() {
   Cleanup();
 }
@@ -52,8 +39,6 @@ bool VideoPlayer::Start() {
 
   // 记录播放开始时间
   play_start_time_ = std::chrono::steady_clock::now();
-  first_pts_initialized_ = false;
-  first_video_pts_ms_ = 0.0;
   {
     std::lock_guard<std::mutex> lock(pause_mutex_);
     accumulated_pause_duration_ = std::chrono::steady_clock::duration::zero();
@@ -151,16 +136,10 @@ void VideoPlayer::ClearFrames() {
   std::lock_guard<std::mutex> lock(frame_queue_mutex_);
   std::queue<std::unique_ptr<VideoFrame>> empty_queue;
   frame_queue_.swap(empty_queue);
-  first_pts_initialized_ = false;
-  first_video_pts_ms_ = 0.0;
 }
 
 void VideoPlayer::ResetTimestamps() {
   std::lock_guard<std::mutex> lock(pause_mutex_);
-
-  // 重置 PTS 归一化状态
-  first_pts_initialized_ = false;
-  first_video_pts_ms_ = 0.0;
 
   // 重置播放时间
   play_start_time_ = std::chrono::steady_clock::now();
@@ -244,23 +223,31 @@ void VideoPlayer::VideoRenderThread() {
     }
     auto render_end = std::chrono::steady_clock::now();
 
-    // 更新视频时钟到同步控制器
+    // 更新视频时钟到同步控制器（传递原始PTS，由AVSyncController负责归一化）
     double video_pts_ms = video_frame->timestamp.ToMilliseconds();
-    double normalized_pts_ms = GetNormalizedVideoPts(video_pts_ms);
 
-    size_t current_queue_size = GetQueueSize();
-    auto time_diff_ms = std::chrono::duration<double, std::milli>(
-                            target_display_time - current_time)
-                            .count();
-    MODULE_DEBUG(
-        LOG_MODULE_VIDEO,
-        "Rendering: PTS={:.2f}ms (raw={:.2f}ms), queue={}, delay={:.2f}ms",
-        normalized_pts_ms, video_pts_ms, current_queue_size, time_diff_ms);
     if (av_sync_controller_) {
-      av_sync_controller_->UpdateVideoClock(normalized_pts_ms, render_end);
+      // 传递原始PTS，由AVSyncController统一归一化
+      av_sync_controller_->UpdateVideoClock(video_pts_ms, render_end);
+
+      // 📊 定期输出同步调试信息（每30帧）
+      static int log_counter = 0;
+      if (++log_counter % 30 == 0) {
+        double master_clock_ms =
+            av_sync_controller_->GetMasterClock(render_end);
+        double normalized_pts =
+            av_sync_controller_->NormalizeVideoPTS(video_pts_ms);
+        double sync_offset = normalized_pts - master_clock_ms;
+
+        MODULE_DEBUG(LOG_MODULE_VIDEO,
+                     "AV Sync: video_pts={:.2f}ms, audio_clock={:.2f}ms, "
+                     "offset={:.2f}ms, queue={}",
+                     normalized_pts, master_clock_ms, sync_offset,
+                     GetQueueSize());
+      }
     }
 
-    // 计算音视频同步偏移
+    // 计算音视频同步偏移（用于统计）
     double sync_offset = CalculateAVSync(video_pts_ms);
 
     // 更新统计信息
@@ -302,72 +289,6 @@ double VideoPlayer::GetEffectiveElapsedTime(
   return std::chrono::duration<double, std::milli>(effective_elapsed).count();
 }
 
-double VideoPlayer::CalculateTimeAdjustment(
-    double normalized_pts_ms,
-    double elapsed_ms,
-    std::chrono::steady_clock::time_point current_time) {
-  // 没有同步控制器：仅视频播放模式
-  if (!av_sync_controller_) {
-    double adjustment = normalized_pts_ms - elapsed_ms;
-    MODULE_DEBUG(LOG_MODULE_VIDEO,
-                 "Video-only mode: PTS={:.2f}ms, elapsed={:.2f}ms, "
-                 "adjustment={:.2f}ms",
-                 normalized_pts_ms, elapsed_ms, adjustment);
-    return adjustment;
-  }
-
-  // 更新视频时钟到同步控制器
-  av_sync_controller_->UpdateVideoClock(normalized_pts_ms, current_time);
-
-  // 获取主时钟和同步模式
-  double master_clock_ms = av_sync_controller_->GetMasterClock(current_time);
-  auto sync_mode = av_sync_controller_->GetSyncMode();
-
-  double time_adjustment_ms;
-
-  if (sync_mode == AVSyncController::SyncMode::EXTERNAL_MASTER) {
-    // 外部时钟模式（仅视频）：基于播放进度计算
-    time_adjustment_ms = normalized_pts_ms - elapsed_ms;
-    // MODULE_DEBUG(LOG_MODULE_VIDEO,
-    //              "External clock mode: PTS={:.2f}ms, elapsed={:.2f}ms, "
-    //              "adjustment={:.2f}ms",
-    //              normalized_pts_ms, elapsed_ms, time_adjustment_ms);
-  } else {
-    // 音视频同步模式：计算同步偏移量
-    double sync_offset_ms = normalized_pts_ms - master_clock_ms;
-
-    // ✅ 记录真实偏移（在限制之前）
-    double real_sync_offset_ms = sync_offset_ms;
-
-    // 限制同步偏移在合理范围内，避免过度调整
-    sync_offset_ms = std::clamp(sync_offset_ms, -100.0, 100.0);
-
-    // ✅ 修复：直接基于主时钟计算，不再依赖不准确的 elapsed_ms
-    // 旧逻辑: time_adjustment_ms = (normalized_pts_ms - elapsed_ms) +
-    // sync_offset_ms; 问题: elapsed_ms 基于
-    // play_start_time_，而音频有硬件初始化延迟 新逻辑: 视频完全跟随音频时钟
-    time_adjustment_ms = sync_offset_ms;
-
-    // 📊 输出详细同步信息（每30帧输出一次）
-    static int log_counter = 0;
-    if (++log_counter % 30 == 0) {
-      MODULE_DEBUG(LOG_MODULE_VIDEO,
-                   "AV sync: video_pts={:.2f}ms, audio_clock={:.2f}ms, "
-                   "real_offset={:.2f}ms, clamped_offset={:.2f}ms, "
-                   "elapsed={:.2f}ms, adjustment={:.2f}ms",
-                   normalized_pts_ms, master_clock_ms, real_sync_offset_ms,
-                   sync_offset_ms, elapsed_ms, time_adjustment_ms);
-    }
-    // MODULE_DEBUG(LOG_MODULE_VIDEO,
-    //              "AV sync mode: PTS={:.2f}ms, master={:.2f}ms, "
-    //              "sync_offset={:.2f}ms, adjustment={:.2f}ms",
-    //              normalized_pts_ms, master_clock_ms, sync_offset_ms,
-    //              time_adjustment_ms);
-  }
-
-  return time_adjustment_ms;
-}
-
 std::chrono::steady_clock::time_point VideoPlayer::CalculateFrameDisplayTime(
     const VideoFrame& frame_info) {
   double video_pts_ms = frame_info.timestamp.ToMilliseconds();
@@ -381,23 +302,27 @@ std::chrono::steady_clock::time_point VideoPlayer::CalculateFrameDisplayTime(
            std::chrono::milliseconds(static_cast<int64_t>(frame_duration_ms));
   }
 
-  // 步骤2：PTS归一化（从0开始）
-  double normalized_pts_ms = GetNormalizedVideoPts(video_pts_ms);
+  // 步骤2：检查是否有同步控制器
+  if (!av_sync_controller_) {
+    // 仅视频播放模式：基于播放时长计算
+    double elapsed_ms = GetEffectiveElapsedTime(current_time);
+    double delay_ms = video_pts_ms - elapsed_ms;
+    delay_ms = std::clamp(delay_ms, -500.0, 500.0);
 
-  // 步骤3：计算有效播放时长（排除暂停时间）
-  double elapsed_ms = GetEffectiveElapsedTime(current_time);
+    return current_time +
+           std::chrono::milliseconds(static_cast<int64_t>(delay_ms));
+  }
 
-  // 步骤4：计算时间调整量（考虑音视频同步）
-  double time_adjustment_ms =
-      CalculateTimeAdjustment(normalized_pts_ms, elapsed_ms, current_time);
+  // 步骤3：使用AVSyncController计算视频延迟
+  // 注意：CalculateVideoDelay需要归一化后的PTS
+  double normalized_pts_ms =
+      av_sync_controller_->NormalizeVideoPTS(video_pts_ms);
+  double delay_ms =
+      av_sync_controller_->CalculateVideoDelay(normalized_pts_ms, current_time);
 
-  // 步骤5：限制调整范围，避免极端延迟
-  time_adjustment_ms = std::clamp(time_adjustment_ms, -500.0, 500.0);
-
-  // 步骤6：计算目标显示时间点
+  // 步骤4：计算目标显示时间点
   auto target_time =
-      current_time +
-      std::chrono::milliseconds(static_cast<int64_t>(time_adjustment_ms));
+      current_time + std::chrono::milliseconds(static_cast<int64_t>(delay_ms));
 
   return target_time;
 }
@@ -411,22 +336,42 @@ bool VideoPlayer::ShouldDropFrame(
     return false;
   }
 
-  // 计算帧的延迟
-  auto target_display_time = CalculateFrameDisplayTime(frame_info);
-  auto delay = std::chrono::duration<double, std::milli>(current_time -
-                                                         target_display_time)
-                   .count();
+  // 如果没有同步控制器，使用简单的延迟检测
+  if (!av_sync_controller_) {
+    auto target_display_time = CalculateFrameDisplayTime(frame_info);
+    auto delay = std::chrono::duration<double, std::milli>(current_time -
+                                                           target_display_time)
+                     .count();
 
-  // 延迟阈值：允许更大的延迟容忍度，避免过度丢帧
-  // 只有当延迟超过5帧时间（约166ms @ 30fps）时才丢帧
-  double frame_duration_ms = 1000.0 / config_.target_fps;
-  bool should_drop = delay > (frame_duration_ms * 5.0);
+    // 延迟超过5帧时间才丢帧
+    double frame_duration_ms = 1000.0 / config_.target_fps;
+    bool should_drop = delay > (frame_duration_ms * 5.0);
 
-  // 添加调试日志
+    if (should_drop) {
+      MODULE_DEBUG(LOG_MODULE_VIDEO,
+                   "Frame drop (no sync): PTS={:.2f}ms, delay={:.2f}ms, "
+                   "threshold={:.2f}ms",
+                   video_pts_ms, delay, frame_duration_ms * 5.0);
+    }
+    return should_drop;
+  }
+
+  // 使用AVSyncController判断是否需要丢帧
+  // 注意：ShouldDropVideoFrame需要归一化后的PTS
+  double normalized_pts_ms =
+      av_sync_controller_->NormalizeVideoPTS(video_pts_ms);
+  bool should_drop = av_sync_controller_->ShouldDropVideoFrame(
+      normalized_pts_ms, current_time);
+
   if (should_drop) {
+    // 计算同步偏移用于日志
+    double master_clock_ms = av_sync_controller_->GetMasterClock(current_time);
+    double sync_offset = normalized_pts_ms - master_clock_ms;
+
     MODULE_DEBUG(LOG_MODULE_VIDEO,
-                 "Frame drop: PTS={:.2f}ms, delay={:.2f}ms, threshold={:.2f}ms",
-                 video_pts_ms, delay, frame_duration_ms * 5.0);
+                 "Frame drop: PTS={:.2f}ms, master_clock={:.2f}ms, "
+                 "sync_offset={:.2f}ms",
+                 normalized_pts_ms, master_clock_ms, sync_offset);
   }
 
   return should_drop;
@@ -436,7 +381,10 @@ double VideoPlayer::CalculateAVSync(double video_pts_ms) {
   if (av_sync_controller_) {
     auto current_time = std::chrono::steady_clock::now();
     double master_clock_ms = av_sync_controller_->GetMasterClock(current_time);
-    double normalized_pts_ms = GetNormalizedVideoPts(video_pts_ms);
+
+    // 由AVSyncController归一化视频PTS
+    double normalized_pts_ms = av_sync_controller_->NormalizeVideoPTS(
+        static_cast<int64_t>(video_pts_ms));
 
     // 返回音视频时钟差值：正值表示视频超前，负值表示音频超前
     return normalized_pts_ms - master_clock_ms;

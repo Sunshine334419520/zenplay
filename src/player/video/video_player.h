@@ -173,9 +173,6 @@ class VideoPlayer {
                    double sync_offset_ms = 0.0);
 
  private:
-  // 帮助函数
-  double GetNormalizedVideoPts(double raw_pts_ms);
-
   /**
    * @brief 计算有效播放时长（排除暂停时间）
    * @param current_time 当前时间
@@ -184,18 +181,6 @@ class VideoPlayer {
   double GetEffectiveElapsedTime(
       std::chrono::steady_clock::time_point current_time) const;
 
-  /**
-   * @brief 计算时间调整量
-   * @param normalized_pts_ms 归一化后的PTS（毫秒）
-   * @param elapsed_ms 有效播放时长（毫秒）
-   * @param current_time 当前时间
-   * @return 时间调整量（毫秒），正数表示需要等待，负数表示已过期
-   */
-  double CalculateTimeAdjustment(
-      double normalized_pts_ms,
-      double elapsed_ms,
-      std::chrono::steady_clock::time_point current_time);
-
   // 渲染器和同步控制器
   Renderer* renderer_;
   PlayerStateManager* state_manager_;     // 状态管理器
@@ -203,10 +188,6 @@ class VideoPlayer {
 
   // 配置
   VideoConfig config_;
-
-  // PTS归一化管理
-  bool first_pts_initialized_{false};
-  double first_video_pts_ms_{0.0};
 
   // 暂停时间累计
   mutable std::mutex pause_mutex_;

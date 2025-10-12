@@ -23,6 +23,40 @@ AVSyncController::SyncMode AVSyncController::GetSyncMode() const {
   return sync_mode_;
 }
 
+double AVSyncController::NormalizeAudioPTS(double raw_pts_ms) {
+  // 必须在clock_mutex_保护下调用
+  if (raw_pts_ms < 0.0) {
+    return raw_pts_ms;  // 无效PTS，直接返回
+  }
+
+  if (!audio_start_initialized_) {
+    audio_start_initialized_ = true;
+    audio_start_pts_ms_ = raw_pts_ms;
+    // 第一帧归一化为0
+    return 0.0;
+  }
+
+  // 后续帧相对于第一帧的偏移
+  return raw_pts_ms - audio_start_pts_ms_;
+}
+
+double AVSyncController::NormalizeVideoPTS(double raw_pts_ms) {
+  // 必须在clock_mutex_保护下调用
+  if (raw_pts_ms < 0.0) {
+    return raw_pts_ms;  // 无效PTS，直接返回
+  }
+
+  if (!video_start_initialized_) {
+    video_start_initialized_ = true;
+    video_start_pts_ms_ = raw_pts_ms;
+    // 第一帧归一化为0
+    return 0.0;
+  }
+
+  // 后续帧相对于第一帧的偏移
+  return raw_pts_ms - video_start_pts_ms_;
+}
+
 void AVSyncController::UpdateAudioClock(
     double audio_pts_ms,
     std::chrono::steady_clock::time_point system_time) {
@@ -33,23 +67,24 @@ void AVSyncController::UpdateAudioClock(
     is_initialized_ = true;
   }
 
-  double normalized_audio_pts = audio_pts_ms;
-  if (audio_pts_ms >= 0.0) {
-    if (!audio_start_initialized_) {
-      audio_start_initialized_ = true;
-      audio_start_pts_ms_ = audio_pts_ms;
-    }
-    normalized_audio_pts = audio_pts_ms - audio_start_pts_ms_;
-  }
+  // 归一化PTS：将原始PTS转换为从0开始的相对时间
+  double normalized_pts = NormalizeAudioPTS(audio_pts_ms);
 
-  // 计算时钟漂移
+  // 计算时钟漂移（Drift）
+  // Drift是音频硬件时钟与系统时钟之间的偏差
   if (audio_clock_.system_time.time_since_epoch().count() > 0) {
-    auto expected_pts = audio_clock_.GetCurrentTime(system_time);
-    double drift = normalized_audio_pts - expected_pts;
-    audio_clock_.drift = drift * 0.1;  // 慢速调整漂移
+    // 根据上次更新的时钟，推算当前应该的PTS
+    double expected_pts = audio_clock_.GetCurrentTime(system_time);
+
+    // 计算实际PTS与推算PTS的差异
+    double drift = normalized_pts - expected_pts;
+
+    // 慢速调整drift（系数0.1），避免时钟突然跳变
+    audio_clock_.drift = drift * 0.1;
   }
 
-  audio_clock_.pts_ms = normalized_audio_pts;
+  // 更新音频时钟
+  audio_clock_.pts_ms = normalized_pts;
   audio_clock_.system_time = system_time;
 
   UpdateSyncStats();
@@ -65,23 +100,23 @@ void AVSyncController::UpdateVideoClock(
     is_initialized_ = true;
   }
 
-  double normalized_video_pts = video_pts_ms;
-  if (video_pts_ms >= 0.0) {
-    if (!video_start_initialized_) {
-      video_start_initialized_ = true;
-      video_start_pts_ms_ = video_pts_ms;
-    }
-    normalized_video_pts = video_pts_ms - video_start_pts_ms_;
-  }
+  // 归一化PTS：将原始PTS转换为从0开始的相对时间
+  double normalized_pts = NormalizeVideoPTS(video_pts_ms);
 
-  // 计算时钟漂移
+  // 计算时钟漂移（Drift）
   if (video_clock_.system_time.time_since_epoch().count() > 0) {
-    auto expected_pts = video_clock_.GetCurrentTime(system_time);
-    double drift = normalized_video_pts - expected_pts;
-    video_clock_.drift = drift * 0.1;  // 慢速调整漂移
+    // 根据上次更新的时钟，推算当前应该的PTS
+    double expected_pts = video_clock_.GetCurrentTime(system_time);
+
+    // 计算实际PTS与推算PTS的差异
+    double drift = normalized_pts - expected_pts;
+
+    // 慢速调整drift（系数0.1），避免时钟突然跳变
+    video_clock_.drift = drift * 0.1;
   }
 
-  video_clock_.pts_ms = normalized_video_pts;
+  // 更新视频时钟
+  video_clock_.pts_ms = normalized_pts;
   video_clock_.system_time = system_time;
 
   UpdateSyncStats();
@@ -93,13 +128,15 @@ double AVSyncController::GetMasterClock(
 
   switch (sync_mode_) {
     case SyncMode::AUDIO_MASTER:
+      // 以音频为主时钟：音频连续播放不能停顿，最稳定
       return audio_clock_.GetCurrentTime(current_time);
 
     case SyncMode::VIDEO_MASTER:
+      // 以视频为主时钟：罕见，仅用于特殊场景（如无音频）
       return video_clock_.GetCurrentTime(current_time);
 
     case SyncMode::EXTERNAL_MASTER: {
-      // 使用系统时钟
+      // 以系统时钟为主：用于测试和调试
       auto elapsed_ms = std::chrono::duration<double, std::milli>(
                             current_time - play_start_time_)
                             .count();
@@ -113,10 +150,22 @@ double AVSyncController::GetMasterClock(
 double AVSyncController::CalculateVideoDelay(
     double video_pts_ms,
     std::chrono::steady_clock::time_point current_time) const {
+  // 步骤1：获取主时钟（通常是音频时钟）
+  // GetMasterClock返回的是归一化后的时钟值（第一帧为0）
   double master_clock_ms = GetMasterClock(current_time);
+
+  // 步骤2：计算同步差值
+  // ⚠️ 注意：目前调用者（VideoPlayer）在调用UpdateVideoClock时传入的是归一化PTS
+  //    所以这里的video_pts_ms应该也是归一化后的值
+  //    确保调用者传入与GetMasterClock()相同基准的PTS！
+  //
+  // sync_diff > 0: 视频超前，需要延迟显示
+  // sync_diff < 0: 视频落后，需要加速显示（甚至丢帧）
   double sync_diff = video_pts_ms - master_clock_ms;
 
-  // 限制延迟范围
+  // 步骤3：限制延迟范围，避免极端情况
+  // 最大延迟：max_video_delay_ms（默认100ms）
+  // 最大加速：-max_video_speedup_ms（默认-100ms）
   sync_diff = std::max(-sync_params_.max_video_speedup_ms,
                        std::min(sync_params_.max_video_delay_ms, sync_diff));
 
