@@ -101,6 +101,12 @@ class AudioPlayer {
   void ResetTimestamps();
 
   /**
+   * @brief 设置音频流的 time_base（用于PTS转换）
+   * @param time_base 音频流的时间基准
+   */
+  void SetTimeBase(AVRational time_base);
+
+  /**
    * @brief 检查是否正在播放
    */
   bool IsPlaying() const;
@@ -169,6 +175,10 @@ class AudioPlayer {
   double base_audio_pts_;
   size_t total_samples_played_;
   std::mutex pts_mutex_;
+  AVRational audio_time_base_{1, 1000000};  // 默认时间基准（微秒）
+  bool base_pts_initialized_{false};        // PTS是否已初始化
+  std::chrono::steady_clock::time_point audio_start_time_;  // 音频开始播放时间
+  bool audio_started_{false};                               // 音频是否已开始
 
   // 重采样器
   SwrContext* swr_context_;
@@ -180,7 +190,9 @@ class AudioPlayer {
   mutable std::mutex frame_queue_mutex_;
   std::queue<AVFramePtr> frame_queue_;
   std::condition_variable frame_available_;
-  static const size_t MAX_QUEUE_SIZE = 50;
+  // ✅ 增大队列以避免启动时大量丢帧
+  // WASAPI第一次callback会请求1秒数据(~100帧)，所以队列需要更大
+  static const size_t MAX_QUEUE_SIZE = 150;
 
   // 内部缓冲区
   std::vector<uint8_t> internal_buffer_;

@@ -5,6 +5,8 @@
 #include <mutex>
 #include <vector>
 
+#include "player/stats/statistics_manager.h"
+
 namespace zenplay {
 
 /**
@@ -24,37 +26,6 @@ class AVSyncController {
     AUDIO_MASTER,    // 以音频为主时钟（推荐）
     VIDEO_MASTER,    // 以视频为主时钟
     EXTERNAL_MASTER  // 外部时钟（如系统时钟）
-  };
-
-  /**
-   * @brief 同步统计信息
-   */
-  struct SyncStats {
-    double audio_clock_ms = 0.0;     // 音频时钟
-    double video_clock_ms = 0.0;     // 视频时钟
-    double sync_offset_ms = 0.0;     // 同步偏移
-    double avg_sync_error_ms = 0.0;  // 平均同步误差
-    double max_sync_error_ms = 0.0;  // 最大同步误差
-    int64_t sync_corrections = 0;    // 同步校正次数
-
-    // 同步质量评估
-    bool is_in_sync() const {
-      return std::abs(sync_offset_ms) < 40.0;  // 40ms以内认为同步
-    }
-
-    const char* sync_quality() const {
-      double abs_offset = std::abs(sync_offset_ms);
-      if (abs_offset < 20.0) {
-        return "Excellent";
-      }
-      if (abs_offset < 40.0) {
-        return "Good";
-      }
-      if (abs_offset < 80.0) {
-        return "Fair";
-      }
-      return "Poor";
-    }
   };
 
   AVSyncController();
@@ -146,11 +117,6 @@ class AVSyncController {
       std::chrono::steady_clock::time_point current_time) const;
 
   /**
-   * @brief 获取同步统计信息
-   */
-  SyncStats GetSyncStats() const;
-
-  /**
    * @brief 设置同步参数
    */
   struct SyncParams {
@@ -167,7 +133,7 @@ class AVSyncController {
 
  private:
   /**
-   * @brief 更新同步统计
+   * @brief 更新同步统计到 StatisticsManager
    */
   void UpdateSyncStats();
 
@@ -200,14 +166,12 @@ class AVSyncController {
   bool video_start_initialized_{false};
   double video_start_pts_ms_{0.0};
 
-  // 同步统计
+  // 同步历史（用于计算平均误差和最大误差）
   mutable std::mutex stats_mutex_;
-  SyncStats stats_;
-
-  // 同步历史（用于计算平均误差）
   static const size_t SYNC_HISTORY_SIZE = 100;
   std::vector<double> sync_error_history_;
   size_t sync_history_index_;
+  int64_t sync_corrections_{0};  // 同步校正次数
 
   // 播放开始时间
   std::chrono::steady_clock::time_point play_start_time_;

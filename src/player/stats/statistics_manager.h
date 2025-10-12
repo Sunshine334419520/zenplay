@@ -38,7 +38,12 @@ class StatisticsManager {
                          bool frame_rendered,
                          bool frame_dropped,
                          double render_time_ms);
-  void UpdateSyncStats(double av_offset_ms, bool is_in_sync);
+  void UpdateSyncStats(double audio_clock_ms,
+                       double video_clock_ms,
+                       double sync_offset_ms,
+                       double avg_sync_error_ms,
+                       double max_sync_error_ms,
+                       int64_t sync_corrections);
   void UpdateSystemStats(double cpu_percent, uint64_t memory_mb);
   void UpdateNetworkStats(double download_kbps, uint64_t bytes_downloaded);
 
@@ -130,13 +135,15 @@ class StatisticsManager {
     }                                                                     \
   } while (0)
 
-#define STATS_UPDATE_SYNC(offset_ms, in_sync)                           \
-  do {                                                                  \
-    if (zenplay::stats::StatisticsManager::IsGlobalEnabled()) {         \
-      auto* manager = zenplay::stats::StatisticsManager::GetInstance(); \
-      if (manager)                                                      \
-        manager->UpdateSyncStats(offset_ms, in_sync);                   \
-    }                                                                   \
+#define STATS_UPDATE_SYNC(audio_clock, video_clock, sync_offset, avg_error, \
+                          max_error, corrections)                           \
+  do {                                                                      \
+    if (zenplay::stats::StatisticsManager::IsGlobalEnabled()) {             \
+      auto* manager = zenplay::stats::StatisticsManager::GetInstance();     \
+      if (manager)                                                          \
+        manager->UpdateSyncStats(audio_clock, video_clock, sync_offset,     \
+                                 avg_error, max_error, corrections);        \
+    }                                                                       \
   } while (0)
 
 #define STATS_UPDATE_SYSTEM(cpu_percent, memory_mb)                     \

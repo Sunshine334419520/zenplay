@@ -175,7 +175,12 @@ void StatisticsManager::UpdateRenderStats(bool is_video,
   }
 }
 
-void StatisticsManager::UpdateSyncStats(double av_offset_ms, bool is_in_sync) {
+void StatisticsManager::UpdateSyncStats(double audio_clock_ms,
+                                        double video_clock_ms,
+                                        double sync_offset_ms,
+                                        double avg_sync_error_ms,
+                                        double max_sync_error_ms,
+                                        int64_t sync_corrections) {
   if (!global_enabled_.load() || !config_.enabled) {
     return;
   }
@@ -183,30 +188,27 @@ void StatisticsManager::UpdateSyncStats(double av_offset_ms, bool is_in_sync) {
   std::lock_guard<std::mutex> lock(stats_mutex_);
   auto& sync = sync_stats_;
 
-  sync.av_sync_offset_ms.store(av_offset_ms);
-  sync.is_in_sync.store(is_in_sync);
+  // 更新时钟信息
+  sync.audio_clock_ms.store(audio_clock_ms);
+  sync.video_clock_ms.store(video_clock_ms);
 
-  // 更新平均偏移和抖动
-  uint64_t count = sync.offset_count.fetch_add(1) + 1;
-  double old_sum = sync.offset_sum.load();
-  sync.offset_sum.store(old_sum + av_offset_ms);
-  double sum = old_sum + av_offset_ms;
-  double avg = sum / count;
-  sync.avg_sync_offset_ms.store(avg);
+  // 更新同步信息
+  sync.av_sync_offset_ms.store(sync_offset_ms);
+  sync.avg_sync_offset_ms.store(avg_sync_error_ms);
+  sync.max_sync_error_ms.store(max_sync_error_ms);
+  sync.sync_corrections.store(sync_corrections);
 
-  // 计算抖动 (标准差的简化版本)
-  double deviation = av_offset_ms - avg;
-  double old_variance = sync.offset_variance.load();
-  sync.offset_variance.store(old_variance + deviation * deviation);
-  if (count > 1) {
-    double variance = (old_variance + deviation * deviation) / (count - 1);
-    sync.sync_jitter_ms.store(std::sqrt(variance));
-  }
+  // 更新同步状态
+  bool in_sync = std::abs(sync_offset_ms) < 40.0;
+  sync.is_in_sync.store(in_sync);
 
-  // 更新同步质量
-  if (std::abs(av_offset_ms) <= 40.0 && is_in_sync) {
+  // 更新同步质量评级
+  double abs_offset = std::abs(sync_offset_ms);
+  if (abs_offset < 20.0) {
+    sync.sync_quality = "Excellent";
+  } else if (abs_offset < 40.0) {
     sync.sync_quality = "Good";
-  } else if (std::abs(av_offset_ms) <= 100.0) {
+  } else if (abs_offset < 80.0) {
     sync.sync_quality = "Fair";
   } else {
     sync.sync_quality = "Poor";
@@ -326,10 +328,16 @@ std::string StatisticsManager::GenerateReport() const {
   // Sync Stats
   const auto& sync = sync_stats_;
   report << "Sync Stats:\n";
-  report << "  AV Offset: " << std::showpos << sync.av_sync_offset_ms.load()
-         << "ms, Jitter: " << std::noshowpos << sync.sync_jitter_ms.load()
-         << "ms, Quality: " << sync.sync_quality
-         << ", InSync: " << (sync.is_in_sync.load() ? "Yes" : "No") << "\n";
+  report << "  Clock    -> Audio: " << std::fixed << std::setprecision(2)
+         << sync.audio_clock_ms.load() << "ms, "
+         << "Video: " << sync.video_clock_ms.load() << "ms\n";
+  report << "  AV Sync  -> Offset: " << std::showpos << std::setprecision(2)
+         << sync.av_sync_offset_ms.load() << "ms" << std::noshowpos
+         << ", Avg: " << sync.avg_sync_offset_ms.load() << "ms"
+         << ", Max: " << sync.max_sync_error_ms.load() << "ms\n";
+  report << "  Quality  -> " << sync.sync_quality
+         << " (InSync: " << (sync.is_in_sync.load() ? "Yes" : "No") << ")"
+         << ", Corrections: " << sync.sync_corrections.load() << "\n";
 
   // System Stats
   const auto& sys = system_stats_;

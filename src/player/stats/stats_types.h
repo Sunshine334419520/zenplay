@@ -65,12 +65,20 @@ struct PipelineStats {
 
 // === 同步与质量统计 ===
 struct SyncQualityStats {
+  // 时钟信息
+  std::atomic<double> audio_clock_ms{0.0};  // 音频时钟(毫秒)
+  std::atomic<double> video_clock_ms{0.0};  // 视频时钟(毫秒)
+
+  // 同步偏移
   std::atomic<double> av_sync_offset_ms{0.0};   // 音视频同步偏移(毫秒)
   std::atomic<double> avg_sync_offset_ms{0.0};  // 平均同步偏移
+  std::atomic<double> max_sync_error_ms{0.0};   // 最大同步误差
   std::atomic<double> sync_jitter_ms{0.0};      // 同步抖动
-  std::atomic<uint64_t> sync_corrections{0};    // 同步修正次数
-  std::atomic<bool> is_in_sync{true};           // 是否同步正常
-  std::string sync_quality = "Good";            // 同步质量评级
+
+  // 同步校正
+  std::atomic<uint64_t> sync_corrections{0};  // 同步修正次数
+  std::atomic<bool> is_in_sync{true};         // 是否同步正常
+  std::string sync_quality = "Good";          // 同步质量评级
 
   // 内部计算用
   std::atomic<double> offset_sum{0.0};       // 偏移累计

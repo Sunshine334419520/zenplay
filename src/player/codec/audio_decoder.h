@@ -37,6 +37,13 @@ class AudioDecoder : public Decoder {
   const AVChannelLayout& channel_layout() const {
     return codec_context_->ch_layout;
   }
+
+  AVRational time_base() const {
+    if (!codec_context_) {
+      return {0, 1};  // Not opened
+    }
+    return codec_context_->time_base;
+  }
 };
 
 }  // namespace zenplay

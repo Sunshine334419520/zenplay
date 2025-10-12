@@ -159,11 +159,6 @@ bool AVSyncController::ShouldRepeatVideoFrame(
   return delay > sync_params_.repeat_frame_threshold_ms;
 }
 
-AVSyncController::SyncStats AVSyncController::GetSyncStats() const {
-  std::lock_guard<std::mutex> lock(stats_mutex_);
-  return stats_;
-}
-
 void AVSyncController::Reset() {
   {
     std::lock_guard<std::mutex> lock(clock_mutex_);
@@ -194,9 +189,10 @@ void AVSyncController::Reset() {
 
   {
     std::lock_guard<std::mutex> lock(stats_mutex_);
-    stats_ = SyncStats{};
+    // 清空统计历史
     std::fill(sync_error_history_.begin(), sync_error_history_.end(), 0.0);
     sync_history_index_ = 0;
+    sync_corrections_ = 0;
   }
 }
 
@@ -233,9 +229,9 @@ void AVSyncController::ResetForSeek(int64_t target_pts_ms) {
   {
     std::lock_guard<std::mutex> lock(stats_mutex_);
     // Seek 时清空统计，但不影响时钟
-    stats_ = SyncStats{};
     std::fill(sync_error_history_.begin(), sync_error_history_.end(), 0.0);
     sync_history_index_ = 0;
+    sync_corrections_ = 0;
   }
 }
 
@@ -246,25 +242,30 @@ void AVSyncController::SetSyncParams(const SyncParams& params) {
 void AVSyncController::UpdateSyncStats() {
   std::lock_guard<std::mutex> lock(stats_mutex_);
 
-  stats_.audio_clock_ms = audio_clock_.pts_ms.load();
-  stats_.video_clock_ms = video_clock_.pts_ms.load();
-  stats_.sync_offset_ms = stats_.video_clock_ms - stats_.audio_clock_ms;
+  // 获取时钟数据
+  double audio_clock_ms = audio_clock_.pts_ms.load();
+  double video_clock_ms = video_clock_.pts_ms.load();
+  double sync_offset_ms = video_clock_ms - audio_clock_ms;
 
   // 更新同步误差历史
-  sync_error_history_[sync_history_index_] = std::abs(stats_.sync_offset_ms);
+  sync_error_history_[sync_history_index_] = std::abs(sync_offset_ms);
   sync_history_index_ = (sync_history_index_ + 1) % SYNC_HISTORY_SIZE;
 
   // 计算平均和最大误差
-  stats_.avg_sync_error_ms = std::accumulate(sync_error_history_.begin(),
+  double avg_sync_error_ms = std::accumulate(sync_error_history_.begin(),
                                              sync_error_history_.end(), 0.0) /
                              SYNC_HISTORY_SIZE;
-  stats_.max_sync_error_ms =
+  double max_sync_error_ms =
       *std::max_element(sync_error_history_.begin(), sync_error_history_.end());
 
   // 检查是否需要同步校正
-  if (std::abs(stats_.sync_offset_ms) > sync_params_.sync_threshold_ms) {
-    stats_.sync_corrections++;
+  if (std::abs(sync_offset_ms) > sync_params_.sync_threshold_ms) {
+    sync_corrections_++;
   }
+
+  // 更新到 StatisticsManager
+  STATS_UPDATE_SYNC(audio_clock_ms, video_clock_ms, sync_offset_ms,
+                    avg_sync_error_ms, max_sync_error_ms, sync_corrections_);
 }
 
 }  // namespace zenplay

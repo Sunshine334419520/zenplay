@@ -103,6 +103,16 @@ bool PlaybackController::Start() {
 
   // 启动音频播放器
   if (audio_player_) {
+    // 设置音频流的 time_base
+    if (demuxer_ && demuxer_->active_audio_stream_index() >= 0) {
+      AVStream* audio_stream =
+          demuxer_->findStreamByIndex(demuxer_->active_audio_stream_index());
+      if (audio_stream) {
+        audio_player_->SetTimeBase(audio_stream->time_base);
+        MODULE_INFO(LOG_MODULE_PLAYER, "Set audio time_base to: {}/{}",
+                    audio_stream->time_base.num, audio_stream->time_base.den);
+      }
+    }
     audio_player_->Start();
   }
 
@@ -344,9 +354,10 @@ void PlaybackController::VideoDecodeTask() {
     bool decode_success = video_decoder_->Decode(packet, &frames);
     auto decode_time = TIMER_END_MS(video_decode);
 
-    // 更新解码统计
-    STATS_UPDATE_DECODE(true, decode_success, decode_time,
-                        video_packet_queue_.Size());
+    // 更新解码统计（使用帧队列大小，而不是packet队列）
+    uint32_t frame_queue_size =
+        video_player_ ? video_player_->GetQueueSize() : 0;
+    STATS_UPDATE_DECODE(true, decode_success, decode_time, frame_queue_size);
 
     if (decode_success) {
       for (auto& frame : frames) {
@@ -440,12 +451,18 @@ void PlaybackController::SyncControlTask() {
     if (av_sync_controller_) {
       // 这里可以添加额外的同步逻辑
       // 比如检测大的时钟偏移并发出警告或校正信号
-      auto stats = av_sync_controller_->GetSyncStats();
 
-      // 如果偏移过大，可以通知播放器进行调整
-      if (std::abs(stats.sync_offset_ms) > 100.0) {  // 100ms阈值
-        // 可以在这里实现一些校正逻辑
-        // 比如通知video_player_调整播放速度
+      // 通过 StatisticsManager 获取同步统计
+      auto* stats_manager = stats::StatisticsManager::GetInstance();
+      if (stats_manager) {
+        auto& sync_stats = stats_manager->GetSyncStats();
+        double sync_offset_ms = sync_stats.av_sync_offset_ms.load();
+
+        // 如果偏移过大，可以通知播放器进行调整
+        if (std::abs(sync_offset_ms) > 100.0) {  // 100ms阈值
+          // 可以在这里实现一些校正逻辑
+          // 比如通知video_player_调整播放速度
+        }
       }
     }
 

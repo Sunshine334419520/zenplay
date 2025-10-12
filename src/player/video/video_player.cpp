@@ -236,16 +236,6 @@ void VideoPlayer::VideoRenderThread() {
       std::this_thread::sleep_until(target_display_time);
     }
 
-    // size_t current_queue_size = GetQueueSize();
-    // auto time_diff_ms = std::chrono::duration<double, std::milli>(
-    //                         target_display_time - current_time)
-    //                         .count();
-    // MODULE_DEBUG(
-    //     LOG_MODULE_VIDEO,
-    //     "Rendering frame PTS={:.2f}ms, queue={},time_adjust = { : .2f} ms ",
-    //     video_frame->timestamp.ToMilliseconds(), current_queue_size,
-    //     time_diff_ms);
-
     // 渲染帧
     auto render_start = std::chrono::steady_clock::now();
     if (renderer_) {
@@ -257,6 +247,15 @@ void VideoPlayer::VideoRenderThread() {
     // 更新视频时钟到同步控制器
     double video_pts_ms = video_frame->timestamp.ToMilliseconds();
     double normalized_pts_ms = GetNormalizedVideoPts(video_pts_ms);
+
+    size_t current_queue_size = GetQueueSize();
+    auto time_diff_ms = std::chrono::duration<double, std::milli>(
+                            target_display_time - current_time)
+                            .count();
+    MODULE_DEBUG(
+        LOG_MODULE_VIDEO,
+        "Rendering: PTS={:.2f}ms (raw={:.2f}ms), queue={}, delay={:.2f}ms",
+        normalized_pts_ms, video_pts_ms, current_queue_size, time_diff_ms);
     if (av_sync_controller_) {
       av_sync_controller_->UpdateVideoClock(normalized_pts_ms, render_end);
     }
@@ -336,11 +335,29 @@ double VideoPlayer::CalculateTimeAdjustment(
   } else {
     // 音视频同步模式：计算同步偏移量
     double sync_offset_ms = normalized_pts_ms - master_clock_ms;
+
+    // ✅ 记录真实偏移（在限制之前）
+    double real_sync_offset_ms = sync_offset_ms;
+
     // 限制同步偏移在合理范围内，避免过度调整
     sync_offset_ms = std::clamp(sync_offset_ms, -100.0, 100.0);
 
-    // 时间调整 = 基础调整 + 同步偏移
-    time_adjustment_ms = (normalized_pts_ms - elapsed_ms) + sync_offset_ms;
+    // ✅ 修复：直接基于主时钟计算，不再依赖不准确的 elapsed_ms
+    // 旧逻辑: time_adjustment_ms = (normalized_pts_ms - elapsed_ms) +
+    // sync_offset_ms; 问题: elapsed_ms 基于
+    // play_start_time_，而音频有硬件初始化延迟 新逻辑: 视频完全跟随音频时钟
+    time_adjustment_ms = sync_offset_ms;
+
+    // 📊 输出详细同步信息（每30帧输出一次）
+    static int log_counter = 0;
+    if (++log_counter % 30 == 0) {
+      MODULE_DEBUG(LOG_MODULE_VIDEO,
+                   "AV sync: video_pts={:.2f}ms, audio_clock={:.2f}ms, "
+                   "real_offset={:.2f}ms, clamped_offset={:.2f}ms, "
+                   "elapsed={:.2f}ms, adjustment={:.2f}ms",
+                   normalized_pts_ms, master_clock_ms, real_sync_offset_ms,
+                   sync_offset_ms, elapsed_ms, time_adjustment_ms);
+    }
     // MODULE_DEBUG(LOG_MODULE_VIDEO,
     //              "AV sync mode: PTS={:.2f}ms, master={:.2f}ms, "
     //              "sync_offset={:.2f}ms, adjustment={:.2f}ms",
