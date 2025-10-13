@@ -39,11 +39,6 @@ bool VideoPlayer::Start() {
 
   // 记录播放开始时间
   play_start_time_ = std::chrono::steady_clock::now();
-  {
-    std::lock_guard<std::mutex> lock(pause_mutex_);
-    accumulated_pause_duration_ = std::chrono::steady_clock::duration::zero();
-    pause_start_time_ = play_start_time_;
-  }
 
   // 启动视频渲染线程
   render_thread_ =
@@ -55,13 +50,6 @@ bool VideoPlayer::Start() {
 
 void VideoPlayer::Stop() {
   MODULE_INFO(LOG_MODULE_VIDEO, "VideoPlayer Stop called");
-
-  // Handle accumulated pause duration if paused
-  if (state_manager_->GetState() == PlayerStateManager::PlayerState::kPaused) {
-    auto stop_time = std::chrono::steady_clock::now();
-    std::lock_guard<std::mutex> lock(pause_mutex_);
-    accumulated_pause_duration_ += stop_time - pause_start_time_;
-  }
 
   // 通知可能在等待的线程
   frame_available_.notify_all();
@@ -75,30 +63,19 @@ void VideoPlayer::Stop() {
   // 清空队列
   ClearFrames();
 
-  {
-    std::lock_guard<std::mutex> lock(pause_mutex_);
-    accumulated_pause_duration_ = std::chrono::steady_clock::duration::zero();
-    pause_start_time_ = std::chrono::steady_clock::time_point{};
-  }
-
   MODULE_INFO(LOG_MODULE_VIDEO, "VideoPlayer stopped");
 }
 
 void VideoPlayer::Pause() {
-  std::lock_guard<std::mutex> lock(pause_mutex_);
-  pause_start_time_ = std::chrono::steady_clock::now();
+  // 暂停由 PlayerStateManager 统一管理
+  // VideoRenderThread 会通过 ShouldPause() 和 WaitForResume() 自动暂停
   MODULE_INFO(LOG_MODULE_VIDEO, "VideoPlayer paused");
 }
 
 void VideoPlayer::Resume() {
-  auto resume_time = std::chrono::steady_clock::now();
-  {
-    std::lock_guard<std::mutex> lock(pause_mutex_);
-    accumulated_pause_duration_ += resume_time - pause_start_time_;
-  }
-  MODULE_INFO(LOG_MODULE_VIDEO, "VideoPlayer resumed");
-
+  // 唤醒可能在 WaitForResume() 中阻塞的渲染线程
   frame_available_.notify_all();
+  MODULE_INFO(LOG_MODULE_VIDEO, "VideoPlayer resumed");
 }
 
 bool VideoPlayer::PushFrame(AVFramePtr frame, const FrameTimestamp& timestamp) {
@@ -262,31 +239,17 @@ void VideoPlayer::VideoRenderThread() {
 
 double VideoPlayer::GetEffectiveElapsedTime(
     std::chrono::steady_clock::time_point current_time) const {
-  // 计算从播放开始到现在的总时长
+  // 此函数已废弃，应该使用 AVSyncController 的 EXTERNAL_MASTER 模式
+  // 保留此函数仅为向后兼容，实际应该始终有 av_sync_controller_
+
+  if (av_sync_controller_) {
+    // 使用同步控制器的主时钟（会自动排除暂停时间）
+    return av_sync_controller_->GetMasterClock(current_time);
+  }
+
+  // 后备方案：简单计算播放时长（不考虑暂停，已废弃）
   auto elapsed_time = current_time - play_start_time_;
-
-  // 获取累计暂停时长的快照（线程安全）
-  std::chrono::steady_clock::duration paused_duration_snapshot;
-  std::chrono::steady_clock::time_point pause_start_snapshot;
-  {
-    std::lock_guard<std::mutex> lock(pause_mutex_);
-    paused_duration_snapshot = accumulated_pause_duration_;
-    pause_start_snapshot = pause_start_time_;
-  }
-
-  // 如果当前正在暂停，需要加上本次暂停到现在的时间
-  if (state_manager_->GetState() == PlayerStateManager::PlayerState::kPaused &&
-      pause_start_snapshot.time_since_epoch().count() != 0) {
-    paused_duration_snapshot += current_time - pause_start_snapshot;
-  }
-
-  // 有效播放时长 = 总时长 - 暂停时长
-  auto effective_elapsed = elapsed_time - paused_duration_snapshot;
-  if (effective_elapsed.count() < 0) {
-    effective_elapsed = std::chrono::steady_clock::duration::zero();
-  }
-
-  return std::chrono::duration<double, std::milli>(effective_elapsed).count();
+  return std::chrono::duration<double, std::milli>(elapsed_time).count();
 }
 
 std::chrono::steady_clock::time_point VideoPlayer::CalculateFrameDisplayTime(
@@ -314,11 +277,9 @@ std::chrono::steady_clock::time_point VideoPlayer::CalculateFrameDisplayTime(
   }
 
   // 步骤3：使用AVSyncController计算视频延迟
-  // 注意：CalculateVideoDelay需要归一化后的PTS
-  double normalized_pts_ms =
-      av_sync_controller_->NormalizeVideoPTS(video_pts_ms);
+  // CalculateVideoDelay内部会自动归一化PTS，直接传入原始PTS即可
   double delay_ms =
-      av_sync_controller_->CalculateVideoDelay(normalized_pts_ms, current_time);
+      av_sync_controller_->CalculateVideoDelay(video_pts_ms, current_time);
 
   // 步骤4：计算目标显示时间点
   auto target_time =
@@ -357,11 +318,9 @@ bool VideoPlayer::ShouldDropFrame(
   }
 
   // 使用AVSyncController判断是否需要丢帧
-  // 注意：ShouldDropVideoFrame需要归一化后的PTS
-  double normalized_pts_ms =
-      av_sync_controller_->NormalizeVideoPTS(video_pts_ms);
-  bool should_drop = av_sync_controller_->ShouldDropVideoFrame(
-      normalized_pts_ms, current_time);
+  // ShouldDropVideoFrame内部会自动归一化PTS，直接传入原始PTS即可
+  bool should_drop =
+      av_sync_controller_->ShouldDropVideoFrame(video_pts_ms, current_time);
 
   if (should_drop) {
     // 计算同步偏移用于日志

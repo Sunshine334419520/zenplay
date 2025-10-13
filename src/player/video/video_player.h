@@ -189,12 +189,6 @@ class VideoPlayer {
   // 配置
   VideoConfig config_;
 
-  // 暂停时间累计
-  mutable std::mutex pause_mutex_;
-  std::chrono::steady_clock::duration accumulated_pause_duration_{
-      std::chrono::steady_clock::duration::zero()};
-  std::chrono::steady_clock::time_point pause_start_time_{};
-
   // 视频帧队列
   mutable std::mutex frame_queue_mutex_;
   std::queue<std::unique_ptr<VideoFrame>> frame_queue_;

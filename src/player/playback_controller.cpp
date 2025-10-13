@@ -43,18 +43,39 @@ PlaybackController::PlaybackController(
     audio_player_.reset();
   }
 
-  // 根据音频解码器状态设置同步模式
-  if (!audio_decoder_ || !audio_decoder_->opened()) {
-    // 仅视频播放：使用外部时钟（系统时钟）避免循环依赖
+  // 根据音视频流的存在情况智能选择同步模式
+  bool has_audio = audio_decoder_ && audio_decoder_->opened();
+  bool has_video = video_decoder_ && video_decoder_->opened();
+
+  if (has_audio && has_video) {
+    // 场景 1：音视频都有 → 使用音频主时钟（标准播放）
+    // 原因：音频硬件稳定，音频不能卡顿，视频通过丢帧/重复帧适应音频
+    av_sync_controller_->SetSyncMode(AVSyncController::SyncMode::AUDIO_MASTER);
+    MODULE_INFO(LOG_MODULE_PLAYER,
+                "Audio + Video detected, using AUDIO_MASTER sync mode");
+
+  } else if (has_audio && !has_video) {
+    // 场景 2：只有音频 → 使用音频主时钟（音乐播放、播客等）
+    // 原因：音频时钟由硬件驱动，最稳定
+    av_sync_controller_->SetSyncMode(AVSyncController::SyncMode::AUDIO_MASTER);
+    MODULE_INFO(LOG_MODULE_PLAYER,
+                "Audio only detected, using AUDIO_MASTER sync mode");
+
+  } else if (!has_audio && has_video) {
+    // 场景 3：只有视频 → 使用外部时钟/系统时钟（GIF、静默视频等）
+    // 原因：无音频时，系统时钟简单可靠，视频按固定帧率播放
     av_sync_controller_->SetSyncMode(
         AVSyncController::SyncMode::EXTERNAL_MASTER);
     MODULE_INFO(LOG_MODULE_PLAYER,
-                "Audio not available, using EXTERNAL_MASTER sync mode");
+                "Video only detected, using EXTERNAL_MASTER sync mode");
+
   } else {
-    // 音视频播放：使用音频主时钟
-    av_sync_controller_->SetSyncMode(AVSyncController::SyncMode::AUDIO_MASTER);
-    MODULE_INFO(LOG_MODULE_PLAYER,
-                "Audio available, using AUDIO_MASTER sync mode");
+    // 场景 4：既无音频也无视频 → 错误情况
+    // 使用外部时钟作为后备，避免崩溃
+    MODULE_ERROR(LOG_MODULE_PLAYER,
+                 "No audio and no video streams available, invalid media file");
+    av_sync_controller_->SetSyncMode(
+        AVSyncController::SyncMode::EXTERNAL_MASTER);
   }
 
   // 初始化视频播放器 (如果有视频流)
@@ -162,24 +183,38 @@ void PlaybackController::Stop() {
 void PlaybackController::Pause() {
   MODULE_INFO(LOG_MODULE_PLAYER, "Pausing PlaybackController");
 
-  // 暂停播放器
+  // 步骤 1：先暂停音视频播放（停止数据流）
+  // 原因：确保暂停时钟时，不会有新的 UpdateClock 调用
   if (audio_player_) {
-    audio_player_->Pause();
+    audio_player_->Pause();  // 停止音频输出，音频回调停止
   }
   if (video_player_) {
-    video_player_->Pause();
+    video_player_->Pause();  // VideoPlayer 通过 state_manager 停止渲染
+  }
+
+  // 步骤 2：再暂停同步控制器（记录暂停时间点）
+  // 此时音视频已经停止，不会再调用 UpdateClock
+  if (av_sync_controller_) {
+    av_sync_controller_->Pause();
   }
 }
 
 void PlaybackController::Resume() {
   MODULE_INFO(LOG_MODULE_PLAYER, "Resuming PlaybackController");
 
-  // 恢复播放器
+  // 步骤 1：先恢复同步控制器（调整时钟基准）
+  // 原因：确保播放器启动后，UpdateClock 使用的是调整后的 system_time
+  if (av_sync_controller_) {
+    av_sync_controller_->Resume();
+  }
+
+  // 步骤 2：再恢复音视频播放（开始数据流）
+  // 此时时钟已经调整好，UpdateClock 会使用正确的 system_time
   if (audio_player_) {
-    audio_player_->Resume();
+    audio_player_->Resume();  // 启动音频输出，恢复音频回调
   }
   if (video_player_) {
-    video_player_->Resume();
+    video_player_->Resume();  // 唤醒渲染线程
   }
 }
 

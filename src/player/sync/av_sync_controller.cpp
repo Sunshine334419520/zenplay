@@ -9,7 +9,9 @@ namespace zenplay {
 AVSyncController::AVSyncController()
     : sync_mode_(SyncMode::AUDIO_MASTER),
       sync_history_index_(0),
-      is_initialized_(false) {
+      is_initialized_(false),
+      is_paused_(false),
+      accumulated_pause_duration_(std::chrono::steady_clock::duration::zero()) {
   sync_error_history_.resize(SYNC_HISTORY_SIZE, 0.0);
   Reset();
 }
@@ -74,6 +76,7 @@ void AVSyncController::UpdateAudioClock(
   // Drift是音频硬件时钟与系统时钟之间的偏差
   if (audio_clock_.system_time.time_since_epoch().count() > 0) {
     // 根据上次更新的时钟，推算当前应该的PTS
+    // 注意：由于Resume()会调整system_time，这里的elapsed已经排除了暂停时间
     double expected_pts = audio_clock_.GetCurrentTime(system_time);
 
     // 计算实际PTS与推算PTS的差异
@@ -106,6 +109,7 @@ void AVSyncController::UpdateVideoClock(
   // 计算时钟漂移（Drift）
   if (video_clock_.system_time.time_since_epoch().count() > 0) {
     // 根据上次更新的时钟，推算当前应该的PTS
+    // 注意：由于Resume()会调整system_time，这里的elapsed已经排除了暂停时间
     double expected_pts = video_clock_.GetCurrentTime(system_time);
 
     // 计算实际PTS与推算PTS的差异
@@ -132,11 +136,14 @@ double AVSyncController::GetMasterClock(
       return audio_clock_.GetCurrentTime(current_time);
 
     case SyncMode::VIDEO_MASTER:
-      // 以视频为主时钟：罕见，仅用于特殊场景（如无音频）
+      // 以视频为主时钟：用于音频同步到视频的特殊场景
+      // 注意：仅用于有音频+视频且需要视频优先的情况
+      // 如果只有视频（无音频），应该使用 EXTERNAL_MASTER
       return video_clock_.GetCurrentTime(current_time);
 
     case SyncMode::EXTERNAL_MASTER: {
-      // 以系统时钟为主：用于测试和调试
+      // 以系统时钟为主：用于无音频场景和测试调试
+      // 注意：由于Resume()会调整play_start_time_，这里的elapsed已经排除了暂停时间
       auto elapsed_ms = std::chrono::duration<double, std::milli>(
                             current_time - play_start_time_)
                             .count();
@@ -150,20 +157,25 @@ double AVSyncController::GetMasterClock(
 double AVSyncController::CalculateVideoDelay(
     double video_pts_ms,
     std::chrono::steady_clock::time_point current_time) const {
-  // 步骤1：获取主时钟（通常是音频时钟）
+  std::lock_guard<std::mutex> lock(clock_mutex_);
+
+  // 步骤1：归一化视频PTS
+  // 注意：这里调用NormalizeVideoPTS是安全的，因为：
+  // 1. UpdateVideoClock 总是在此之前调用，已经初始化了基准
+  // 2. NormalizeVideoPTS 在基准初始化后是纯函数（无副作用）
+  double normalized_video_pts =
+      const_cast<AVSyncController*>(this)->NormalizeVideoPTS(video_pts_ms);
+
+  // 步骤2：获取主时钟（通常是音频时钟）
   // GetMasterClock返回的是归一化后的时钟值（第一帧为0）
   double master_clock_ms = GetMasterClock(current_time);
 
-  // 步骤2：计算同步差值
-  // ⚠️ 注意：目前调用者（VideoPlayer）在调用UpdateVideoClock时传入的是归一化PTS
-  //    所以这里的video_pts_ms应该也是归一化后的值
-  //    确保调用者传入与GetMasterClock()相同基准的PTS！
-  //
+  // 步骤3：计算同步差值
   // sync_diff > 0: 视频超前，需要延迟显示
   // sync_diff < 0: 视频落后，需要加速显示（甚至丢帧）
-  double sync_diff = video_pts_ms - master_clock_ms;
+  double sync_diff = normalized_video_pts - master_clock_ms;
 
-  // 步骤3：限制延迟范围，避免极端情况
+  // 步骤4：限制延迟范围，避免极端情况
   // 最大延迟：max_video_delay_ms（默认100ms）
   // 最大加速：-max_video_speedup_ms（默认-100ms）
   sync_diff = std::max(-sync_params_.max_video_speedup_ms,
@@ -243,6 +255,67 @@ void AVSyncController::Reset() {
     sync_history_index_ = 0;
     sync_corrections_ = 0;
   }
+
+  // 重置暂停状态
+  {
+    std::lock_guard<std::mutex> lock(pause_mutex_);
+    is_paused_ = false;
+    pause_start_time_ = std::chrono::steady_clock::time_point{};
+    accumulated_pause_duration_ = std::chrono::steady_clock::duration::zero();
+  }
+
+  MODULE_INFO(LOG_MODULE_SYNC, "AVSyncController reset (Stop scenario)");
+}
+
+void AVSyncController::Pause() {
+  std::lock_guard<std::mutex> clock_lock(clock_mutex_);
+  std::lock_guard<std::mutex> pause_lock(pause_mutex_);
+
+  if (is_paused_) {
+    MODULE_WARN(LOG_MODULE_SYNC, "AVSyncController already paused");
+    return;
+  }
+
+  is_paused_ = true;
+  pause_start_time_ = std::chrono::steady_clock::now();
+
+  MODULE_INFO(LOG_MODULE_SYNC, "AVSyncController paused");
+}
+
+void AVSyncController::Resume() {
+  std::lock_guard<std::mutex> clock_lock(clock_mutex_);
+  std::lock_guard<std::mutex> pause_lock(pause_mutex_);
+
+  if (!is_paused_) {
+    MODULE_WARN(LOG_MODULE_SYNC, "AVSyncController not paused, cannot resume");
+    return;
+  }
+
+  auto resume_time = std::chrono::steady_clock::now();
+
+  // 计算本次暂停时长
+  auto this_pause_duration = resume_time - pause_start_time_;
+  accumulated_pause_duration_ += this_pause_duration;
+
+  // ⚠️ 关键优化：直接调整所有时钟的 system_time，
+  // 这样 GetCurrentTime() 计算时就不需要减去暂停时长了！
+  audio_clock_.system_time += this_pause_duration;
+  video_clock_.system_time += this_pause_duration;
+  external_clock_.system_time += this_pause_duration;
+  play_start_time_ += this_pause_duration;
+
+  auto total_paused_ms =
+      std::chrono::duration<double, std::milli>(accumulated_pause_duration_)
+          .count();
+
+  MODULE_INFO(
+      LOG_MODULE_SYNC,
+      "AVSyncController resumed, this pause: {:.2f}ms, total paused: {:.2f}ms",
+      std::chrono::duration<double, std::milli>(this_pause_duration).count(),
+      total_paused_ms);
+
+  is_paused_ = false;
+  pause_start_time_ = std::chrono::steady_clock::time_point{};
 }
 
 void AVSyncController::ResetForSeek(int64_t target_pts_ms) {
