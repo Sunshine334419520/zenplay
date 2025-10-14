@@ -130,6 +130,15 @@ double AVSyncController::GetMasterClock(
     std::chrono::steady_clock::time_point current_time) const {
   std::lock_guard<std::mutex> lock(clock_mutex_);
 
+  // ✅ 暂停期间冻结时钟：使用暂停时刻作为当前时间
+  // 这样 GetCurrentTime() 计算的 elapsed 为 0，时钟值保持不变
+  {
+    std::lock_guard<std::mutex> pause_lock(pause_mutex_);
+    if (is_paused_) {
+      current_time = pause_start_time_;
+    }
+  }
+
   switch (sync_mode_) {
     case SyncMode::AUDIO_MASTER:
       // 以音频为主时钟：音频连续播放不能停顿，最稳定
