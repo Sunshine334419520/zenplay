@@ -102,8 +102,8 @@ bool VideoPlayer::PushFrame(AVFramePtr frame, const FrameTimestamp& timestamp) {
     }
   }
 
-  auto video_frame = std::make_unique<VideoFrame>(std::move(frame), timestamp);
-  frame_queue_.push(std::move(video_frame));
+  auto media_frame = std::make_unique<MediaFrame>(std::move(frame), timestamp);
+  frame_queue_.push(std::move(media_frame));
   frame_available_.notify_one();
 
   return true;
@@ -111,7 +111,7 @@ bool VideoPlayer::PushFrame(AVFramePtr frame, const FrameTimestamp& timestamp) {
 
 void VideoPlayer::ClearFrames() {
   std::lock_guard<std::mutex> lock(frame_queue_mutex_);
-  std::queue<std::unique_ptr<VideoFrame>> empty_queue;
+  std::queue<std::unique_ptr<MediaFrame>> empty_queue;
   frame_queue_.swap(empty_queue);
 }
 

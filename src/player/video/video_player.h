@@ -39,21 +39,9 @@ class VideoPlayer {
   };
 
   /**
-   * @brief 帧时间戳信息
+   * @brief 帧时间戳信息 (使用通用的 MediaTimestamp)
    */
-  struct FrameTimestamp {
-    int64_t pts = AV_NOPTS_VALUE;      // 显示时间戳
-    int64_t dts = AV_NOPTS_VALUE;      // 解码时间戳
-    AVRational time_base{1, 1000000};  // 时间基准
-
-    // 转换为毫秒
-    double ToMilliseconds() const {
-      if (pts == AV_NOPTS_VALUE || pts < 0) {
-        return -1.0;  // 返回-1表示无效时间戳，而不是0.0
-      }
-      return pts * av_q2d(time_base) * 1000.0;
-    }
-  };
+  using FrameTimestamp = MediaTimestamp;
 
   VideoPlayer(PlayerStateManager* state_manager,
               AVSyncController* sync_controller = nullptr);
@@ -123,18 +111,9 @@ class VideoPlayer {
 
  private:
   /**
-   * @brief 视频帧信息
+   * @brief 视频帧信息 (使用通用的 MediaFrame)
    */
-  struct VideoFrame {
-    AVFramePtr frame;
-    FrameTimestamp timestamp;
-    std::chrono::steady_clock::time_point receive_time;
-
-    VideoFrame(AVFramePtr f, const FrameTimestamp& ts)
-        : frame(std::move(f)),
-          timestamp(ts),
-          receive_time(std::chrono::steady_clock::now()) {}
-  };
+  using VideoFrame = MediaFrame;
 
   /**
    * @brief 视频渲染线程主函数
@@ -189,9 +168,9 @@ class VideoPlayer {
   // 配置
   VideoConfig config_;
 
-  // 视频帧队列
+  // 视频帧队列 (使用通用的 MediaFrame)
   mutable std::mutex frame_queue_mutex_;
-  std::queue<std::unique_ptr<VideoFrame>> frame_queue_;
+  std::queue<std::unique_ptr<MediaFrame>> frame_queue_;
   std::condition_variable frame_available_;
 
   // 渲染线程

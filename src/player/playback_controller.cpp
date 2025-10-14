@@ -123,17 +123,8 @@ bool PlaybackController::Start() {
   }
 
   // 启动音频播放器
+  // 注意: time_base 现在通过 PushFrame(frame, timestamp) 传递，不再需要单独设置
   if (audio_player_) {
-    // 设置音频流的 time_base
-    if (demuxer_ && demuxer_->active_audio_stream_index() >= 0) {
-      AVStream* audio_stream =
-          demuxer_->findStreamByIndex(demuxer_->active_audio_stream_index());
-      if (audio_stream) {
-        audio_player_->SetTimeBase(audio_stream->time_base);
-        MODULE_INFO(LOG_MODULE_PLAYER, "Set audio time_base to: {}/{}",
-                    audio_stream->time_base.num, audio_stream->time_base.den);
-      }
-    }
     audio_player_->Start();
   }
 
@@ -450,7 +441,21 @@ void PlaybackController::AudioDecodeTask() {
 
       for (auto& frame : frames) {
         if (audio_player_) {
-          audio_player_->PushFrame(std::move(frame));
+          // 创建时间戳信息 (与 VideoPlayer 保持一致)
+          AudioPlayer::FrameTimestamp timestamp;
+          timestamp.pts = frame->pts;
+          timestamp.dts = frame->pkt_dts;
+
+          // 从音频流获取时间基准
+          if (demuxer_ && demuxer_->active_audio_stream_index() >= 0) {
+            AVStream* stream = demuxer_->findStreamByIndex(
+                demuxer_->active_audio_stream_index());
+            if (stream) {
+              timestamp.time_base = stream->time_base;
+            }
+          }
+
+          audio_player_->PushFrame(std::move(frame), timestamp);
         }
       }
       break;
@@ -465,7 +470,21 @@ void PlaybackController::AudioDecodeTask() {
     if (decode_success) {
       for (auto& frame : frames) {
         if (audio_player_) {
-          audio_player_->PushFrame(std::move(frame));
+          // 创建时间戳信息 (与 VideoPlayer 保持一致)
+          AudioPlayer::FrameTimestamp timestamp;
+          timestamp.pts = frame->pts;
+          timestamp.dts = frame->pkt_dts;
+
+          // 从音频流获取时间基准
+          if (demuxer_ && demuxer_->active_audio_stream_index() >= 0) {
+            AVStream* stream = demuxer_->findStreamByIndex(
+                demuxer_->active_audio_stream_index());
+            if (stream) {
+              timestamp.time_base = stream->time_base;
+            }
+          }
+
+          audio_player_->PushFrame(std::move(frame), timestamp);
         }
       }
     }

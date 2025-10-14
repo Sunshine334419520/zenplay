@@ -40,6 +40,11 @@ class AudioPlayer {
     int buffer_size = 1024;                            // 缓冲区大小
   };
 
+  /**
+   * @brief 帧时间戳信息 (使用通用的 MediaTimestamp)
+   */
+  using FrameTimestamp = MediaTimestamp;
+
   AudioPlayer(PlayerStateManager* state_manager,
               AVSyncController* sync_controller = nullptr);
   ~AudioPlayer();
@@ -86,9 +91,10 @@ class AudioPlayer {
   /**
    * @brief 推送音频帧到播放队列
    * @param frame 音频帧
+   * @param timestamp 时间戳信息 (与 VideoPlayer 保持一致)
    * @return 成功返回true
    */
-  bool PushFrame(AVFramePtr frame);
+  bool PushFrame(AVFramePtr frame, const FrameTimestamp& timestamp);
 
   /**
    * @brief 清空音频帧队列
@@ -99,12 +105,6 @@ class AudioPlayer {
    * @brief 重置时间戳状态（Seek 后调用）
    */
   void ResetTimestamps();
-
-  /**
-   * @brief 设置音频流的 time_base（用于PTS转换）
-   * @param time_base 音频流的时间基准
-   */
-  void SetTimeBase(AVRational time_base);
 
   /**
    * @brief 检查是否正在播放
@@ -159,6 +159,12 @@ class AudioPlayer {
    */
   int FillAudioBuffer(uint8_t* buffer, int buffer_size);
 
+  /**
+   * @brief 获取当前播放位置的 PTS (毫秒)
+   * @return PTS 毫秒数,如果无效返回 -1.0
+   */
+  double GetCurrentPlaybackPTS() const;
+
  private:
   // 音频输出设备
   std::unique_ptr<AudioOutput> audio_output_;
@@ -171,14 +177,11 @@ class AudioPlayer {
   PlayerStateManager* state_manager_;
   AVSyncController* sync_controller_;
 
-  // PTS跟踪
-  double base_audio_pts_;
-  size_t total_samples_played_;
-  std::mutex pts_mutex_;
-  AVRational audio_time_base_{1, 1000000};  // 默认时间基准（微秒）
-  bool base_pts_initialized_{false};        // PTS是否已初始化
-  std::chrono::steady_clock::time_point audio_start_time_;  // 音频开始播放时间
-  bool audio_started_{false};                               // 音频是否已开始
+  // PTS跟踪 (基于采样数的精确计算)
+  mutable std::mutex pts_mutex_;
+  double current_base_pts_seconds_{0.0};  // 当前基准 PTS (秒)
+  size_t samples_played_since_base_{0};   // 从基准开始已播放的采样数
+  int target_sample_rate_{44100};         // 目标采样率
 
   // 重采样器
   SwrContext* swr_context_;
@@ -186,9 +189,9 @@ class AudioPlayer {
   int resampled_data_size_;
   int max_resampled_samples_;
 
-  // 音频帧队列
+  // 音频帧队列 (使用通用的 MediaFrame 结构)
   mutable std::mutex frame_queue_mutex_;
-  std::queue<AVFramePtr> frame_queue_;
+  std::queue<std::unique_ptr<MediaFrame>> frame_queue_;
   std::condition_variable frame_available_;
   // ✅ 增大队列以避免启动时大量丢帧
   // WASAPI第一次callback会请求1秒数据(~100帧)，所以队列需要更大

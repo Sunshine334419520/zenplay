@@ -38,6 +38,7 @@ AudioPlayer::~AudioPlayer() {
 
 bool AudioPlayer::Init(const AudioConfig& config) {
   config_ = config;
+  target_sample_rate_ = config.target_sample_rate;  // 保存目标采样率用于PTS计算
 
   // 配置音频输出规格
   output_spec_.sample_rate = config_.target_sample_rate;
@@ -140,28 +141,12 @@ float AudioPlayer::GetVolume() const {
   return 0.0f;
 }
 
-bool AudioPlayer::PushFrame(AVFramePtr frame) {
+bool AudioPlayer::PushFrame(AVFramePtr frame, const FrameTimestamp& timestamp) {
   if (!frame || state_manager_->ShouldStop()) {
     MODULE_DEBUG(LOG_MODULE_AUDIO,
                  "PushFrame rejected: frame={}, should_stop={}",
                  (void*)frame.get(), state_manager_->ShouldStop());
     return false;
-  }
-
-  // ✅ 设置基础PTS（第一帧），用于音频时钟计算
-  // 现在队列足够大(150帧)，不会丢帧，所以第一帧就是真正播放的第一帧
-  if (!base_pts_initialized_ && frame->pts != AV_NOPTS_VALUE) {
-    std::lock_guard<std::mutex> pts_lock(pts_mutex_);
-    if (!base_pts_initialized_) {  // 双重检查
-      base_audio_pts_ =
-          static_cast<double>(frame->pts) * av_q2d(audio_time_base_);
-      base_pts_initialized_ = true;
-      MODULE_INFO(
-          LOG_MODULE_AUDIO,
-          "Audio base PTS set to: {:.3f}s (raw_pts={}, time_base={}/{})",
-          base_audio_pts_, frame->pts, audio_time_base_.num,
-          audio_time_base_.den);
-    }
   }
 
   std::lock_guard<std::mutex> lock(frame_queue_mutex_);
@@ -173,44 +158,56 @@ bool AudioPlayer::PushFrame(AVFramePtr frame) {
     MODULE_WARN(LOG_MODULE_AUDIO, "Audio queue full, dropping oldest frame");
   }
 
-  frame_queue_.push(std::move(frame));
+  // ✅ 创建 MediaFrame 并入队 (与 VideoPlayer 保持一致)
+  auto media_frame = std::make_unique<MediaFrame>(std::move(frame), timestamp);
+  frame_queue_.push(std::move(media_frame));
   frame_available_.notify_one();
+
+  MODULE_DEBUG(LOG_MODULE_AUDIO,
+               "Audio frame pushed: pts={:.3f}s, queue_size={}",
+               timestamp.ToSeconds(), frame_queue_.size());
+
   return true;
 }
 
 void AudioPlayer::ClearFrames() {
   std::lock_guard<std::mutex> lock(frame_queue_mutex_);
-  std::queue<AVFramePtr> empty_queue;
+  std::queue<std::unique_ptr<MediaFrame>> empty_queue;
   frame_queue_.swap(empty_queue);
   buffer_read_pos_ = 0;
 
   // 重置PTS跟踪状态
   {
     std::lock_guard<std::mutex> pts_lock(pts_mutex_);
-    base_audio_pts_ = 0.0;
-    total_samples_played_ = 0;
-    base_pts_initialized_ = false;
-    audio_started_ = false;
+    current_base_pts_seconds_ = 0.0;
+    samples_played_since_base_ = 0;
   }
 }
 
 void AudioPlayer::ResetTimestamps() {
   std::lock_guard<std::mutex> lock(pts_mutex_);
 
-  // 重置 PTS 基准
-  base_audio_pts_ = 0.0;
-  total_samples_played_ = 0;
-  base_pts_initialized_ = false;
-  audio_started_ = false;
+  // 重置PTS基准和采样计数
+  current_base_pts_seconds_ = 0.0;
+  samples_played_since_base_ = 0;
 
   MODULE_INFO(LOG_MODULE_AUDIO, "AudioPlayer timestamps reset");
 }
 
-void AudioPlayer::SetTimeBase(AVRational time_base) {
+double AudioPlayer::GetCurrentPlaybackPTS() const {
   std::lock_guard<std::mutex> lock(pts_mutex_);
-  audio_time_base_ = time_base;
-  MODULE_INFO(LOG_MODULE_AUDIO, "Audio time_base set to: {}/{}", time_base.num,
-              time_base.den);
+
+  if (current_base_pts_seconds_ < 0) {
+    return -1.0;  // 尚未开始播放
+  }
+
+  // 根据已播放的采样数计算经过的时间
+  double elapsed_seconds =
+      static_cast<double>(samples_played_since_base_) / target_sample_rate_;
+
+  double current_pts_seconds = current_base_pts_seconds_ + elapsed_seconds;
+
+  return current_pts_seconds * 1000.0;  // 转换为毫秒
 }
 
 bool AudioPlayer::IsPlaying() const {
@@ -268,41 +265,23 @@ int AudioPlayer::AudioOutputCallback(void* user_data,
   bool audio_rendered = player->last_fill_had_real_data_;
   STATS_UPDATE_RENDER(false, audio_rendered, false, render_time_ms);
 
-  // 更新音频时钟
-  if (bytes_filled > 0 && player->sync_controller_) {
-    std::lock_guard<std::mutex> pts_lock(player->pts_mutex_);
+  // ✅ 查询当前播放位置的 PTS (基于采样数精确计算)
+  double current_pts_ms = player->GetCurrentPlaybackPTS();
 
+  if (bytes_filled > 0 && current_pts_ms >= 0 && player->sync_controller_) {
     auto current_time = std::chrono::steady_clock::now();
-
-    // 第一次回调时记录开始时间
-    if (!player->audio_started_) {
-      player->audio_start_time_ = current_time;
-      player->audio_started_ = true;
-      MODULE_INFO(LOG_MODULE_AUDIO, "Audio clock started: base_pts={:.3f}s",
-                  player->base_audio_pts_);
-    }
-
-    // ✅ 修复：使用真实播放时间计算音频时钟
-    auto elapsed_time = current_time - player->audio_start_time_;
-    double elapsed_seconds =
-        std::chrono::duration<double>(elapsed_time).count();
-
-    // 音频时钟 = 基准 PTS + 实际播放时间
-    double current_audio_clock = player->base_audio_pts_ + elapsed_seconds;
 
     // 📊 定期输出调试信息
     static int clock_log_counter = 0;
     if (++clock_log_counter % 100 == 0) {
       MODULE_DEBUG(LOG_MODULE_AUDIO,
-                   "Audio clock: base={:.3f}s, elapsed={:.3f}s, clock={:.3f}s "
-                   "({:.2f}ms)",
-                   player->base_audio_pts_, elapsed_seconds,
-                   current_audio_clock, current_audio_clock * 1000.0);
+                   "Updating audio clock: current_pts={:.2f}ms (samples={}/{})",
+                   current_pts_ms, player->samples_played_since_base_,
+                   player->target_sample_rate_);
     }
 
-    // 更新同步控制器的音频时钟（转换为毫秒）
-    player->sync_controller_->UpdateAudioClock(current_audio_clock * 1000.0,
-                                               current_time);
+    // ✅ 传递精确计算的当前 PTS
+    player->sync_controller_->UpdateAudioClock(current_pts_ms, current_time);
   }
 
   return bytes_filled;
@@ -409,6 +388,10 @@ int AudioPlayer::FillAudioBuffer(uint8_t* buffer, int buffer_size) {
   // ✅ 记录是否从队列中实际获取了音频数据
   bool has_real_audio_data = false;
 
+  // ✅ 检查是否需要更新 base_pts (只在 buffer 开始且没有剩余数据时)
+  bool need_update_base_pts =
+      (internal_buffer_.empty() && buffer_read_pos_ == 0);
+
   while (bytes_filled < buffer_size) {
     // 首先尝试从内部缓冲区读取
     if (buffer_read_pos_ < internal_buffer_.size()) {
@@ -420,6 +403,13 @@ int AudioPlayer::FillAudioBuffer(uint8_t* buffer, int buffer_size) {
              bytes_to_copy);
       bytes_filled += bytes_to_copy;
       buffer_read_pos_ += bytes_to_copy;
+
+      // ✅ 累积已播放的采样数
+      {
+        std::lock_guard<std::mutex> lock(pts_mutex_);
+        int samples_copied = bytes_to_copy / bytes_per_sample;
+        samples_played_since_base_ += samples_copied;
+      }
 
       if (buffer_read_pos_ >= internal_buffer_.size()) {
         internal_buffer_.clear();  // 清空已消费的数据
@@ -441,27 +431,47 @@ int AudioPlayer::FillAudioBuffer(uint8_t* buffer, int buffer_size) {
     }
 
     size_t queue_size_before = frame_queue_.size();
-    AVFramePtr frame = std::move(frame_queue_.front());
+    std::unique_ptr<MediaFrame> media_frame = std::move(frame_queue_.front());
     frame_queue_.pop();
     lock.unlock();
 
-    // MODULE_DEBUG(
-    //     LOG_MODULE_AUDIO,
-    //     "Consumed audio frame from queue (size {} -> {}), pts={},
-    //     samples={}", queue_size_before, queue_size_before - 1, frame->pts,
-    //     frame->nb_samples);
-
-    if (!frame) {
+    if (!media_frame || !media_frame->frame) {
       MODULE_WARN(LOG_MODULE_AUDIO, "Got null frame from queue");
       break;  // EOF
     }
+
+    // ✅ 只在需要时更新基准 PTS (避免多帧填充时重复重置)
+    {
+      std::lock_guard<std::mutex> pts_lock(pts_mutex_);
+
+      if (need_update_base_pts) {
+        // 只在 buffer 开始时设置 base_pts (一次 FillAudioBuffer 调用只设置一次)
+        current_base_pts_seconds_ = media_frame->timestamp.ToSeconds();
+        samples_played_since_base_ = 0;
+        need_update_base_pts = false;  // 标记已更新,避免重复更新
+
+        MODULE_DEBUG(LOG_MODULE_AUDIO,
+                     "Base PTS set to {:.3f}s (pts={}, time_base={}/{})",
+                     current_base_pts_seconds_, media_frame->timestamp.pts,
+                     media_frame->timestamp.time_base.num,
+                     media_frame->timestamp.time_base.den);
+      } else {
+        // internal_buffer 还有剩余数据,新帧追加到缓冲区,不更新 base_pts
+        MODULE_DEBUG(
+            LOG_MODULE_AUDIO,
+            "Frame appended, keeping base_pts={:.3f}s (new frame pts={:.3f}s)",
+            current_base_pts_seconds_, media_frame->timestamp.ToSeconds());
+      }
+    }
+
+    AVFrame* frame = media_frame->frame.get();
 
     // ✅ 标记从队列获取了真实音频帧
     has_real_audio_data = true;
 
     // 初始化重采样器(如果需要)
     if (!format_initialized_) {
-      if (!InitializeResampler(frame.get())) {
+      if (!InitializeResampler(frame)) {
         MODULE_ERROR(LOG_MODULE_AUDIO, "Failed to initialize resampler");
         break;
       }
@@ -469,7 +479,7 @@ int AudioPlayer::FillAudioBuffer(uint8_t* buffer, int buffer_size) {
 
     // 重采样音频数据
     int resampled_samples =
-        ResampleFrame(frame.get(), resampled_data_, max_resampled_samples_);
+        ResampleFrame(frame, resampled_data_, max_resampled_samples_);
     if (resampled_samples <= 0) {
       MODULE_WARN(LOG_MODULE_AUDIO, "Resample failed, samples={}",
                   resampled_samples);
