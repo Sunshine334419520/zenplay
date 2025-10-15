@@ -166,14 +166,17 @@ double AVSyncController::GetMasterClock(
 double AVSyncController::CalculateVideoDelay(
     double video_pts_ms,
     std::chrono::steady_clock::time_point current_time) const {
-  std::lock_guard<std::mutex> lock(clock_mutex_);
+  double normalized_video_pts = 0.0;
+  {
+    std::lock_guard<std::mutex> lock(clock_mutex_);
 
-  // 步骤1：归一化视频PTS
-  // 注意：这里调用NormalizeVideoPTS是安全的，因为：
-  // 1. UpdateVideoClock 总是在此之前调用，已经初始化了基准
-  // 2. NormalizeVideoPTS 在基准初始化后是纯函数（无副作用）
-  double normalized_video_pts =
-      const_cast<AVSyncController*>(this)->NormalizeVideoPTS(video_pts_ms);
+    // 步骤1：归一化视频PTS
+    // 注意：这里调用NormalizeVideoPTS是安全的，因为：
+    // 1. UpdateVideoClock 总是在此之前调用，已经初始化了基准
+    // 2. NormalizeVideoPTS 在基准初始化后是纯函数（无副作用）
+    normalized_video_pts =
+        const_cast<AVSyncController*>(this)->NormalizeVideoPTS(video_pts_ms);
+  }
 
   // 步骤2：获取主时钟（通常是音频时钟）
   // GetMasterClock返回的是归一化后的时钟值（第一帧为0）

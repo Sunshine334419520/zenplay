@@ -19,8 +19,6 @@ AudioPlayer::AudioPlayer(PlayerStateManager* state_manager,
                          AVSyncController* sync_controller)
     : state_manager_(state_manager),
       sync_controller_(sync_controller),
-      base_audio_pts_(0.0),
-      total_samples_played_(0),
       swr_context_(nullptr),
       resampled_data_(nullptr),
       resampled_data_size_(0),
@@ -102,13 +100,6 @@ void AudioPlayer::Stop() {
 
   // 清空队列
   ClearFrames();
-
-  // 重置PTS跟踪状态
-  {
-    std::lock_guard<std::mutex> pts_lock(pts_mutex_);
-    base_audio_pts_ = 0.0;
-    total_samples_played_ = 0;
-  }
 
   MODULE_INFO(LOG_MODULE_AUDIO, "Audio playback stopped");
 }

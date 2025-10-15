@@ -116,13 +116,8 @@ void VideoPlayer::ClearFrames() {
 }
 
 void VideoPlayer::ResetTimestamps() {
-  std::lock_guard<std::mutex> lock(pause_mutex_);
-
   // 重置播放时间
   play_start_time_ = std::chrono::steady_clock::now();
-
-  // 重置暂停累计时间
-  accumulated_pause_duration_ = std::chrono::steady_clock::duration::zero();
 
   MODULE_INFO(LOG_MODULE_VIDEO, "VideoPlayer timestamps reset");
 }
@@ -321,17 +316,6 @@ bool VideoPlayer::ShouldDropFrame(
   // ShouldDropVideoFrame内部会自动归一化PTS，直接传入原始PTS即可
   bool should_drop =
       av_sync_controller_->ShouldDropVideoFrame(video_pts_ms, current_time);
-
-  if (should_drop) {
-    // 计算同步偏移用于日志
-    double master_clock_ms = av_sync_controller_->GetMasterClock(current_time);
-    double sync_offset = normalized_pts_ms - master_clock_ms;
-
-    MODULE_DEBUG(LOG_MODULE_VIDEO,
-                 "Frame drop: PTS={:.2f}ms, master_clock={:.2f}ms, "
-                 "sync_offset={:.2f}ms",
-                 normalized_pts_ms, master_clock_ms, sync_offset);
-  }
 
   return should_drop;
 }
