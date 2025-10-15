@@ -1,22 +1,21 @@
 #pragma once
 
 #include <atomic>
-#include <condition_variable>
 #include <memory>
 #include <mutex>
 #include <queue>
 #include <thread>
-
-#include "../sync/av_sync_controller.h"
-#include "audio_output.h"
-#include "player/common/player_state_manager.h"
 
 extern "C" {
 #include <libavutil/frame.h>
 #include <libswresample/swresample.h>
 }
 
+#include "player/audio/audio_output.h"
+#include "player/sync/av_sync_controller.h"
+#include "player/common/player_state_manager.h"
 #include "player/common/common_def.h"
+
 
 namespace zenplay {
 
@@ -203,10 +202,9 @@ class AudioPlayer {
   // 音频帧队列 (使用通用的 MediaFrame 结构)
   mutable std::mutex frame_queue_mutex_;
   std::queue<std::unique_ptr<MediaFrame>> frame_queue_;
-  std::condition_variable frame_available_;
   // ✅ 增大队列以避免启动时大量丢帧
-  // WASAPI第一次callback会请求1秒数据(~100帧)，所以队列需要更大
-  static const size_t MAX_QUEUE_SIZE = 150;
+  // WASAPI第一次callback会请求100毫秒数据(~10帧)，所以队列需要更大
+  static const size_t MAX_QUEUE_SIZE = 50;
 
   // 内部缓冲区
   std::vector<uint8_t> internal_buffer_;

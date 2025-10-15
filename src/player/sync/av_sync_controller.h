@@ -5,8 +5,6 @@
 #include <mutex>
 #include <vector>
 
-#include "player/stats/statistics_manager.h"
-
 namespace zenplay {
 
 /**
@@ -367,4 +365,4 @@ class AVSyncController {
       accumulated_pause_duration_;  // 累计暂停时长（用于日志统计）
 };
 
-} // namespace zenplay
+}  // namespace zenplay

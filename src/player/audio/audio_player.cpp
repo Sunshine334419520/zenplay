@@ -9,9 +9,9 @@ extern "C" {
 #include <libavutil/opt.h>
 }
 
-#include "../common/log_manager.h"
-#include "../common/timer_util.h"
-#include "../stats/statistics_manager.h"
+#include "player/common/log_manager.h"
+#include "player/common/timer_util.h"
+#include "player/stats/statistics_manager.h"
 
 namespace zenplay {
 
@@ -90,9 +90,6 @@ bool AudioPlayer::Start() {
 void AudioPlayer::Stop() {
   MODULE_INFO(LOG_MODULE_AUDIO, "AudioPlayer Stop called");
 
-  // 通知可能在等待的线程
-  frame_available_.notify_all();
-
   // 停止音频输出
   if (audio_output_) {
     audio_output_->Stop();
@@ -115,7 +112,6 @@ void AudioPlayer::Resume() {
   if (audio_output_) {
     audio_output_->Resume();
   }
-  frame_available_.notify_all();
   MODULE_INFO(LOG_MODULE_AUDIO, "AudioPlayer resumed");
 }
 
@@ -152,7 +148,6 @@ bool AudioPlayer::PushFrame(AVFramePtr frame, const FrameTimestamp& timestamp) {
   // ✅ 创建 MediaFrame 并入队 (与 VideoPlayer 保持一致)
   auto media_frame = std::make_unique<MediaFrame>(std::move(frame), timestamp);
   frame_queue_.push(std::move(media_frame));
-  frame_available_.notify_one();
 
   MODULE_DEBUG(LOG_MODULE_AUDIO,
                "Audio frame pushed: pts={:.3f}s, queue_size={}",
@@ -181,22 +176,12 @@ void AudioPlayer::ClearFrames() {
 }
 
 void AudioPlayer::Flush() {
-  size_t queue_size = GetQueueSize();
-  size_t buffer_size = internal_buffer_.size();
-  
-  MODULE_DEBUG(LOG_MODULE_AUDIO,
-               "Flush called: queue_size={}, internal_buffer_size={} bytes",
-               queue_size, buffer_size);
-
-  // 1. 清空软件层缓冲区
-  ClearFrames();  // 清空 frame_queue_ 和 internal_buffer_
-
-  // 2. 清空硬件层缓冲区
+  // 1. 清空硬件层缓冲区
   if (audio_output_) {
     audio_output_->Flush();
   }
 
-  MODULE_INFO(LOG_MODULE_AUDIO, "AudioPlayer flushed (software + hardware)");
+  MODULE_INFO(LOG_MODULE_AUDIO, "AudioPlayer flushed (hardware only)");
 }
 
 void AudioPlayer::ResetTimestamps() {

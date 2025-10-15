@@ -4,6 +4,8 @@
 #include <cmath>
 #include <numeric>
 
+#include "player/stats/statistics_manager.h"
+
 namespace zenplay {
 
 AVSyncController::AVSyncController()

@@ -675,42 +675,6 @@ bool PlaybackController::ExecuteSeek(const SeekRequest& request) {
       audio_player_->ResetTimestamps();
     }
 
-    // === 步骤6.5: 预填充音频队列 ===
-    // ✅ 关键修复：在恢复播放前预填充音频队列，避免 Seek 后音频空白
-    if (audio_player_ && 
-        request.restore_state == PlayerStateManager::PlayerState::kPlaying) {
-      MODULE_DEBUG(LOG_MODULE_PLAYER, "Prefilling audio queue");
-      
-      // 临时允许解码线程运行
-      state_manager_->TransitionToPlaying();
-      
-      // 等待音频队列填充到目标帧数
-      const size_t target_frames = 30;  // 约 0.7 秒音频
-      const int max_wait_ms = 300;
-      auto start = std::chrono::steady_clock::now();
-      
-      while (audio_player_->GetQueueSize() < target_frames) {
-        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::steady_clock::now() - start).count();
-        
-        if (elapsed > max_wait_ms) {
-          MODULE_DEBUG(LOG_MODULE_PLAYER,
-                       "Audio prefill timeout after {}ms, queue_size={}",
-                       elapsed, audio_player_->GetQueueSize());
-          break;
-        }
-        
-        std::this_thread::sleep_for(std::chrono::milliseconds(5));
-      }
-      
-      auto prefill_time = std::chrono::duration_cast<std::chrono::milliseconds>(
-          std::chrono::steady_clock::now() - start).count();
-      
-      MODULE_INFO(LOG_MODULE_PLAYER,
-                  "Audio queue prefilled: {} frames in {}ms",
-                  audio_player_->GetQueueSize(), prefill_time);
-    }
-
     // === 步骤6.7: 清空音频硬件缓冲区 ===
     // ✅ 在队列预填充后才清空硬件缓冲区，确保有数据可以立即播放
     MODULE_DEBUG(LOG_MODULE_PLAYER, "Flushing audio hardware buffer");
@@ -722,15 +686,17 @@ bool PlaybackController::ExecuteSeek(const SeekRequest& request) {
     MODULE_DEBUG(LOG_MODULE_PLAYER, "Restoring state: {}",
                  PlayerStateManager::GetStateName(request.restore_state));
 
-    // 转换到目标状态
     if (request.restore_state == PlayerStateManager::PlayerState::kPlaying) {
+      // 1. 先转换状态，唤醒 DemuxTask 和 AudioDecodeTask
+      state_manager_->TransitionToPlaying();
+
+      // 2. 然后启动播放器（此时解码线程已开始准备数据）
       if (video_player_) {
         video_player_->Resume();
       }
       if (audio_player_) {
         audio_player_->Resume();
       }
-      state_manager_->TransitionToPlaying();
     } else if (request.restore_state ==
                PlayerStateManager::PlayerState::kPaused) {
       state_manager_->TransitionToPaused();

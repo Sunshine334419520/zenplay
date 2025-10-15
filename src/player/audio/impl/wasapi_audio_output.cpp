@@ -260,9 +260,9 @@ bool WasapiAudioOutput::ConfigureAudioFormat() {
 
   // 初始化音频客户端（使用轮询模式，不需要事件回调）
   hr = audio_client_->Initialize(AUDCLNT_SHAREMODE_SHARED,
-                                 0,         // 不使用特殊标志，采用轮询模式
-                                 10000000,  // 1秒的缓冲区（100ns 单位）
-                                 0,         // 共享模式下为0
+                                 0,        // 不使用特殊标志，采用轮询模式
+                                 1000000,  // 100ms的缓冲区（100ns 单位）
+                                 0,        // 共享模式下为0
                                  wave_format_, nullptr);
 
   if (FAILED(hr)) {
