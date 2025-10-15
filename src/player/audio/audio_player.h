@@ -102,6 +102,17 @@ class AudioPlayer {
   void ClearFrames();
 
   /**
+   * @brief 清空音频缓冲区（软件 + 硬件）
+   *
+   * 用于 Seek 场景，清空：
+   * 1. 软件层：frame_queue_、internal_buffer_
+   * 2. 硬件层：WASAPI 缓冲区
+   *
+   * @note 必须在 Pause 状态下调用
+   */
+  void Flush();
+
+  /**
    * @brief 重置时间戳状态（Seek 后调用）
    */
   void ResetTimestamps();

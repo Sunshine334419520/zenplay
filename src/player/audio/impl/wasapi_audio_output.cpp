@@ -160,6 +160,27 @@ bool WasapiAudioOutput::IsPlaying() const {
   return is_playing_.load();
 }
 
+void WasapiAudioOutput::Flush() {
+  if (!audio_client_) {
+    MODULE_WARN(LOG_MODULE_AUDIO, "WASAPI audio_client_ is null, cannot flush");
+    return;
+  }
+
+  // ⚠️ 重要：Reset() 只能在音频流停止时调用
+  // 在 Seek 流程中：Pause() -> Flush() -> Seek -> Resume()
+  // Pause() 已经调用了 Stop()，所以这里是安全的
+
+  HRESULT hr = audio_client_->Reset();
+  if (FAILED(hr)) {
+    MODULE_ERROR(LOG_MODULE_AUDIO,
+                 "WASAPI IAudioClient::Reset() failed: 0x{:08X}",
+                 static_cast<unsigned int>(hr));
+    return;
+  }
+
+  MODULE_INFO(LOG_MODULE_AUDIO, "WASAPI hardware buffer flushed");
+}
+
 bool WasapiAudioOutput::InitializeCOM() {
   HRESULT hr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
   if (FAILED(hr) && hr != RPC_E_CHANGED_MODE) {

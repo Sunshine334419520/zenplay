@@ -43,6 +43,7 @@ class WasapiAudioOutput : public AudioOutput {
   void Cleanup() override;
   const char* GetDeviceName() const override;
   bool IsPlaying() const override;
+  void Flush() override;
 
  private:
   /**

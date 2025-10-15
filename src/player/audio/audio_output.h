@@ -109,6 +109,17 @@ class AudioOutput {
    * @brief 检查是否正在播放
    */
   virtual bool IsPlaying() const = 0;
+
+  /**
+   * @brief 清空音频硬件缓冲区
+   *
+   * 用于 Seek 等场景，清除已写入硬件但未播放的音频数据。
+   * 必须在音频流停止（Pause/Stop）时调用。
+   *
+   * @note 调用后，下次播放将从干净的缓冲区开始
+   * @note 在 Seek 流程中：Pause() -> Flush() -> Seek -> Resume()
+   */
+  virtual void Flush() = 0;
 };
 
 }  // namespace zenplay

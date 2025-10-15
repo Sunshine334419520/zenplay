@@ -165,6 +165,9 @@ void AudioPlayer::ClearFrames() {
   std::lock_guard<std::mutex> lock(frame_queue_mutex_);
   std::queue<std::unique_ptr<MediaFrame>> empty_queue;
   frame_queue_.swap(empty_queue);
+
+  // ✅ 清空内部缓冲区，避免 Seek 后播放旧数据
+  internal_buffer_.clear();
   buffer_read_pos_ = 0;
 
   // 重置PTS跟踪状态
@@ -173,6 +176,27 @@ void AudioPlayer::ClearFrames() {
     current_base_pts_seconds_ = 0.0;
     samples_played_since_base_ = 0;
   }
+
+  MODULE_DEBUG(LOG_MODULE_AUDIO, "Audio frames and internal buffer cleared");
+}
+
+void AudioPlayer::Flush() {
+  size_t queue_size = GetQueueSize();
+  size_t buffer_size = internal_buffer_.size();
+  
+  MODULE_DEBUG(LOG_MODULE_AUDIO,
+               "Flush called: queue_size={}, internal_buffer_size={} bytes",
+               queue_size, buffer_size);
+
+  // 1. 清空软件层缓冲区
+  ClearFrames();  // 清空 frame_queue_ 和 internal_buffer_
+
+  // 2. 清空硬件层缓冲区
+  if (audio_output_) {
+    audio_output_->Flush();
+  }
+
+  MODULE_INFO(LOG_MODULE_AUDIO, "AudioPlayer flushed (software + hardware)");
 }
 
 void AudioPlayer::ResetTimestamps() {
