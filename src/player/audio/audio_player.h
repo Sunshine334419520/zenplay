@@ -12,10 +12,9 @@ extern "C" {
 }
 
 #include "player/audio/audio_output.h"
-#include "player/sync/av_sync_controller.h"
-#include "player/common/player_state_manager.h"
 #include "player/common/common_def.h"
-
+#include "player/common/player_state_manager.h"
+#include "player/sync/av_sync_controller.h"
 
 namespace zenplay {
 
@@ -204,7 +203,7 @@ class AudioPlayer {
   std::queue<std::unique_ptr<MediaFrame>> frame_queue_;
   // ✅ 增大队列以避免启动时大量丢帧
   // WASAPI第一次callback会请求100毫秒数据(~10帧)，所以队列需要更大
-  static const size_t MAX_QUEUE_SIZE = 50;
+  static const size_t MAX_QUEUE_SIZE = 80;
 
   // 内部缓冲区
   std::vector<uint8_t> internal_buffer_;
