@@ -449,18 +449,6 @@ int AudioPlayer::FillAudioBuffer(uint8_t* buffer, int buffer_size) {
         current_base_pts_seconds_ = media_frame->timestamp.ToSeconds();
         samples_played_since_base_ = 0;
         need_update_base_pts = false;  // 标记已更新,避免重复更新
-
-        MODULE_DEBUG(LOG_MODULE_AUDIO,
-                     "Base PTS set to {:.3f}s (pts={}, time_base={}/{})",
-                     current_base_pts_seconds_, media_frame->timestamp.pts,
-                     media_frame->timestamp.time_base.num,
-                     media_frame->timestamp.time_base.den);
-      } else {
-        // internal_buffer 还有剩余数据,新帧追加到缓冲区,不更新 base_pts
-        MODULE_DEBUG(
-            LOG_MODULE_AUDIO,
-            "Frame appended, keeping base_pts={:.3f}s (new frame pts={:.3f}s)",
-            current_base_pts_seconds_, media_frame->timestamp.ToSeconds());
       }
     }
 
@@ -485,9 +473,6 @@ int AudioPlayer::FillAudioBuffer(uint8_t* buffer, int buffer_size) {
                   resampled_samples);
       continue;
     }
-
-    // MODULE_DEBUG(LOG_MODULE_AUDIO, "Resampled {} samples",
-    // resampled_samples);
 
     // 计算重采样后的数据大小
     int resampled_bytes = resampled_samples * bytes_per_sample;

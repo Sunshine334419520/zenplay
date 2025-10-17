@@ -201,22 +201,6 @@ void VideoPlayer::VideoRenderThread() {
     if (av_sync_controller_) {
       // 传递原始PTS，由AVSyncController统一归一化
       av_sync_controller_->UpdateVideoClock(video_pts_ms, render_end);
-
-      // 📊 定期输出同步调试信息（每30帧）
-      static int log_counter = 0;
-      if (++log_counter % 30 == 0) {
-        double master_clock_ms =
-            av_sync_controller_->GetMasterClock(render_end);
-        double normalized_pts =
-            av_sync_controller_->NormalizeVideoPTS(video_pts_ms);
-        double sync_offset = normalized_pts - master_clock_ms;
-
-        MODULE_DEBUG(LOG_MODULE_VIDEO,
-                     "AV Sync: video_pts={:.2f}ms, audio_clock={:.2f}ms, "
-                     "offset={:.2f}ms, queue={}",
-                     normalized_pts, master_clock_ms, sync_offset,
-                     GetQueueSize());
-      }
     }
 
     // 计算音视频同步偏移（用于统计）
@@ -303,12 +287,6 @@ bool VideoPlayer::ShouldDropFrame(
     double frame_duration_ms = 1000.0 / config_.target_fps;
     bool should_drop = delay > (frame_duration_ms * 5.0);
 
-    if (should_drop) {
-      MODULE_DEBUG(LOG_MODULE_VIDEO,
-                   "Frame drop (no sync): PTS={:.2f}ms, delay={:.2f}ms, "
-                   "threshold={:.2f}ms",
-                   video_pts_ms, delay, frame_duration_ms * 5.0);
-    }
     return should_drop;
   }
 
@@ -339,14 +317,7 @@ double VideoPlayer::CalculateAVSync(double video_pts_ms) {
 void VideoPlayer::UpdateStats(bool frame_dropped,
                               double render_time_ms,
                               double sync_offset_ms) {
-  // 使用统一的 StatisticsManager 更新统计
   STATS_UPDATE_RENDER(true, !frame_dropped, frame_dropped, render_time_ms);
-
-  // 更新同步统计
-  // if (av_sync_controller_) {
-  //   auto sync_stats = av_sync_controller_->GetSyncStats();
-  //   STATS_UPDATE_SYNC(sync_offset_ms, sync_stats.is_in_sync());
-  // }
 }
 
 }  // namespace zenplay
