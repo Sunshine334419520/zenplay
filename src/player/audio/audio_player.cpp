@@ -271,15 +271,6 @@ int AudioPlayer::AudioOutputCallback(void* user_data,
   if (bytes_filled > 0 && current_pts_ms >= 0 && player->sync_controller_) {
     auto current_time = std::chrono::steady_clock::now();
 
-    // 📊 定期输出调试信息
-    static int clock_log_counter = 0;
-    if (++clock_log_counter % 100 == 0) {
-      MODULE_DEBUG(LOG_MODULE_AUDIO,
-                   "Updating audio clock: current_pts={:.2f}ms (samples={}/{})",
-                   current_pts_ms, player->samples_played_since_base_,
-                   player->target_sample_rate_);
-    }
-
     // ✅ 传递精确计算的当前 PTS
     player->sync_controller_->UpdateAudioClock(current_pts_ms, current_time);
   }
