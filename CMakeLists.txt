@@ -167,3 +167,11 @@ if (APPLE)
             message(WARNING "macdeployqt not found, Qt libraries will not be deployed automatically.")
         endif()
 endif()
+
+# 单元测试（可选，通过 BUILD_TESTING 控制）
+option(BUILD_TESTING "Build the testing tree" ON)
+if (BUILD_TESTING)
+    enable_testing()
+    add_subdirectory(tests)
+    message(STATUS "Unit tests enabled. Run with: ctest or ./build/tests/zenplay_tests")
+endif()

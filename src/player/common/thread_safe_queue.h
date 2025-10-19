@@ -6,10 +6,6 @@
 #include <queue>
 #include <type_traits>
 
-extern "C" {
-#include <libavcodec/packet.h>
-}
-
 // 媒体数据队列，线程安全
 template <typename T>
 class ThreadSafeQueue {

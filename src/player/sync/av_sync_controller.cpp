@@ -29,10 +29,8 @@ AVSyncController::SyncMode AVSyncController::GetSyncMode() const {
 
 double AVSyncController::NormalizeAudioPTS(double raw_pts_ms) {
   // 必须在clock_mutex_保护下调用
-  if (raw_pts_ms < 0.0) {
-    return raw_pts_ms;  // 无效PTS，直接返回
-  }
 
+  // 第一次调用：记录起始PTS作为归一化基准（允许负数）
   if (!audio_start_initialized_) {
     audio_start_initialized_ = true;
     audio_start_pts_ms_ = raw_pts_ms;
@@ -46,10 +44,8 @@ double AVSyncController::NormalizeAudioPTS(double raw_pts_ms) {
 
 double AVSyncController::NormalizeVideoPTS(double raw_pts_ms) {
   // 必须在clock_mutex_保护下调用
-  if (raw_pts_ms < 0.0) {
-    return raw_pts_ms;  // 无效PTS，直接返回
-  }
 
+  // 第一次调用：记录起始PTS作为归一化基准（允许负数）
   if (!video_start_initialized_) {
     video_start_initialized_ = true;
     video_start_pts_ms_ = raw_pts_ms;

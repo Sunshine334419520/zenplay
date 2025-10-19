@@ -20,6 +20,7 @@ class ZenPlayConan(ConanFile):
         self.requires("sdl/2.32.2")
         self.requires("ffmpeg/7.1.1")
         self.requires("spdlog/1.15.1")
+        self.requires("gtest/1.17.0")
 
     def layout(self):
         cmake_layout(self)
