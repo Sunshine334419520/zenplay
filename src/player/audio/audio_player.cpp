@@ -90,6 +90,9 @@ bool AudioPlayer::Start() {
 void AudioPlayer::Stop() {
   MODULE_INFO(LOG_MODULE_AUDIO, "AudioPlayer Stop called");
 
+  // ✅ 唤醒所有等待的解码线程
+  frame_consumed_.notify_all();
+
   // 停止音频输出
   if (audio_output_) {
     audio_output_->Stop();
@@ -156,6 +159,43 @@ bool AudioPlayer::PushFrame(AVFramePtr frame, const FrameTimestamp& timestamp) {
   return true;
 }
 
+bool AudioPlayer::PushFrameTimeout(AVFramePtr frame,
+                                   const FrameTimestamp& timestamp,
+                                   int timeout_ms) {
+  if (!frame || state_manager_->ShouldStop()) {
+    return false;
+  }
+
+  std::unique_lock<std::mutex> lock(frame_queue_mutex_);
+
+  // ✅ 等待队列有空间（使用条件变量替代 sleep 轮询）
+  if (timeout_ms > 0) {
+    bool success = frame_consumed_.wait_for(
+        lock, std::chrono::milliseconds(timeout_ms), [this] {
+          return state_manager_->ShouldStop() ||
+                 frame_queue_.size() < MAX_QUEUE_SIZE;
+        });
+
+    if (!success || state_manager_->ShouldStop()) {
+      return false;  // 超时或停止
+    }
+  } else {
+    // timeout_ms == 0，非阻塞模式
+    if (frame_queue_.size() >= MAX_QUEUE_SIZE) {
+      return false;
+    }
+  }
+
+  auto media_frame = std::make_unique<MediaFrame>(std::move(frame), timestamp);
+  frame_queue_.push(std::move(media_frame));
+
+  MODULE_DEBUG(LOG_MODULE_AUDIO,
+               "Audio frame pushed (timeout): pts={:.3f}s, queue_size={}",
+               timestamp.ToSeconds(), frame_queue_.size());
+
+  return true;
+}
+
 void AudioPlayer::ClearFrames() {
   std::lock_guard<std::mutex> lock(frame_queue_mutex_);
   std::queue<std::unique_ptr<MediaFrame>> empty_queue;
@@ -171,6 +211,9 @@ void AudioPlayer::ClearFrames() {
     current_base_pts_seconds_ = 0.0;
     samples_played_since_base_ = 0;
   }
+
+  // ✅ 清空后通知等待的生产者：现在有大量空间了
+  frame_consumed_.notify_all();
 
   MODULE_DEBUG(LOG_MODULE_AUDIO, "Audio frames and internal buffer cleared");
 }
@@ -424,6 +467,10 @@ int AudioPlayer::FillAudioBuffer(uint8_t* buffer, int buffer_size) {
     size_t queue_size_before = frame_queue_.size();
     std::unique_ptr<MediaFrame> media_frame = std::move(frame_queue_.front());
     frame_queue_.pop();
+
+    // ✅ 通知生产者：队列有空间了
+    frame_consumed_.notify_one();
+
     lock.unlock();
 
     if (!media_frame || !media_frame->frame) {

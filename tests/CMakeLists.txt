@@ -29,6 +29,7 @@ set(TEST_SOURCES
     test_main.cpp
     test_thread_safe_queue.cpp
     test_av_sync_controller.cpp
+    test_blocking_queue.cpp
 )
 
 # 创建测试可执行文件

@@ -106,6 +106,11 @@ PlaybackController::~PlaybackController() {
 bool PlaybackController::Start() {
   // 注意：不再需要 state_mutex_，状态由 PlayerStateManager 管理
 
+  // ✅ 重置队列状态（如果之前调用过 Stop()）
+  video_packet_queue_.Reset();
+  audio_packet_queue_.Reset();
+  seek_request_queue_.Reset();
+
   // 启动解封装线程 - 使用专门的工作线程
   demux_thread_ =
       std::make_unique<std::thread>(&PlaybackController::DemuxTask, this);
@@ -234,7 +239,11 @@ void PlaybackController::SeekAsync(int64_t timestamp_ms, bool backward) {
   SeekRequest request(timestamp_ms, backward, restore_state);
 
   // 添加到请求队列（如果队列中已有请求，新请求会替代旧请求）
-  seek_request_queue_.Push(request);
+  if (!seek_request_queue_.Push(request)) {
+    MODULE_ERROR(LOG_MODULE_PLAYER,
+                 "Failed to queue seek request (queue stopped)");
+    return;
+  }
 
   MODULE_INFO(LOG_MODULE_PLAYER, "Seek request queued");
 }
@@ -278,11 +287,7 @@ void PlaybackController::DemuxTask() {
       continue;
     }
 
-    // 检查队列大小，避免内存积压
-    if (video_packet_queue_.Size() > 100 || audio_packet_queue_.Size() > 100) {
-      std::this_thread::sleep_for(std::chrono::milliseconds(10));
-      continue;
-    }
+    // ✅ 移除队列大小检查和 sleep，BlockingQueue 会自动阻塞
 
     AVPacket* packet = av_packet_alloc();
     if (!packet) {
@@ -295,10 +300,16 @@ void PlaybackController::DemuxTask() {
     if (!demuxer_->ReadPacket(&packet)) {
       // 发送EOF信号
       if (video_decoder_ && video_decoder_->opened()) {
-        video_packet_queue_.Push(nullptr);
+        if (!video_packet_queue_.Push(nullptr)) {
+          av_packet_free(&packet);
+          break;  // 队列已停止
+        }
       }
       if (audio_decoder_ && audio_decoder_->opened()) {
-        audio_packet_queue_.Push(nullptr);
+        if (!audio_packet_queue_.Push(nullptr)) {
+          av_packet_free(&packet);
+          break;  // 队列已停止
+        }
       }
       av_packet_free(&packet);
       break;
@@ -313,13 +324,20 @@ void PlaybackController::DemuxTask() {
         1, packet->size, demux_time_ms,
         packet->stream_index == demuxer_->active_video_stream_index());
 
+    // ✅ BlockingQueue::Push 会自动阻塞直到有空间，无需手动检查
     // 分发packet到对应的解码队列
     if (packet->stream_index == demuxer_->active_video_stream_index() &&
         video_decoder_ && video_decoder_->opened()) {
-      video_packet_queue_.Push(packet);
+      if (!video_packet_queue_.Push(packet)) {
+        av_packet_free(&packet);
+        break;  // 队列已停止
+      }
     } else if (packet->stream_index == demuxer_->active_audio_stream_index() &&
                audio_decoder_ && audio_decoder_->opened()) {
-      audio_packet_queue_.Push(packet);
+      if (!audio_packet_queue_.Push(packet)) {
+        av_packet_free(&packet);
+        break;  // 队列已停止
+      }
     } else {
       av_packet_free(&packet);
     }
@@ -341,15 +359,12 @@ void PlaybackController::VideoDecodeTask() {
       continue;
     }
 
-    // 检查视频播放器的队列大小，避免内存积压
-    if (video_player_ && video_player_->GetQueueSize() > 25) {
-      std::this_thread::sleep_for(std::chrono::milliseconds(10));
-      continue;
-    }
+    // ✅ 使用条件变量等待，替代 sleep 轮询
+    // PushFrameTimeout 内部会阻塞直到队列有空间
 
-    // 从队列获取packet
+    // ✅ BlockingQueue::Pop 会阻塞直到有数据或队列停止
     if (!video_packet_queue_.Pop(packet)) {
-      continue;
+      break;  // 队列已停止，退出循环
     }
 
     if (!packet) {
@@ -369,7 +384,7 @@ void PlaybackController::VideoDecodeTask() {
               timestamp.time_base = stream->time_base;
             }
           }
-          video_player_->PushFrame(std::move(frame), timestamp);
+          video_player_->PushFrameTimeout(std::move(frame), timestamp, 100);
         }
       }
       break;
@@ -401,7 +416,8 @@ void PlaybackController::VideoDecodeTask() {
             }
           }
 
-          video_player_->PushFrame(std::move(frame), timestamp);
+          // ✅ 使用 PushFrameTimeout，阻塞等待队列有空间（100ms超时）
+          video_player_->PushFrameTimeout(std::move(frame), timestamp, 100);
         }
       }
     }
@@ -425,15 +441,11 @@ void PlaybackController::AudioDecodeTask() {
       continue;
     }
 
-    // 检查音频播放器的队列大小，避免内存积压
-    if (audio_player_ && audio_player_->GetQueueSize() > 50) {
-      std::this_thread::sleep_for(std::chrono::milliseconds(10));
-      continue;
-    }
+    // ✅ 使用条件变量等待，替代 sleep 轮询
 
-    // 从队列获取packet
+    // ✅ BlockingQueue::Pop 会阻塞直到有数据或队列停止
     if (!audio_packet_queue_.Pop(packet)) {
-      continue;
+      break;  // 队列已停止，退出循环
     }
 
     if (!packet) {
@@ -455,7 +467,7 @@ void PlaybackController::AudioDecodeTask() {
             }
           }
 
-          audio_player_->PushFrame(std::move(frame), timestamp);
+          audio_player_->PushFrameTimeout(std::move(frame), timestamp, 100);
         }
       }
       break;
@@ -484,7 +496,8 @@ void PlaybackController::AudioDecodeTask() {
             }
           }
 
-          audio_player_->PushFrame(std::move(frame), timestamp);
+          // ✅ 使用 PushFrameTimeout，阻塞等待队列有空间（100ms超时）
+          audio_player_->PushFrameTimeout(std::move(frame), timestamp, 100);
         }
       }
     }
@@ -576,14 +589,14 @@ void PlaybackController::SeekTask() {
   while (!state_manager_->ShouldStop()) {
     SeekRequest request(0, false, PlayerStateManager::PlayerState::kStopped);
 
-    // 从队列获取 Seek 请求
-    if (!seek_request_queue_.Pop(request, std::chrono::milliseconds(500))) {
-      continue;
+    // ✅ BlockingQueue::Pop 会阻塞直到有数据或队列停止
+    if (!seek_request_queue_.Pop(request)) {
+      break;  // 队列已停止，退出循环
     }
 
     // 清空队列中的旧请求，只执行最新的
     SeekRequest latest_request = request;
-    while (seek_request_queue_.Pop(request, std::chrono::milliseconds(0))) {
+    while (seek_request_queue_.TryPop(request)) {
       MODULE_DEBUG(LOG_MODULE_PLAYER, "Discarding old seek request: {}ms",
                    request.timestamp_ms);
       latest_request = request;

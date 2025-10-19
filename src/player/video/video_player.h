@@ -85,6 +85,17 @@ class VideoPlayer {
   bool PushFrame(AVFramePtr frame, const FrameTimestamp& timestamp);
 
   /**
+   * @brief 推送视频帧到播放队列（带超时的阻塞版本）
+   * @param frame 视频帧
+   * @param timestamp 时间戳信息
+   * @param timeout_ms 超时时间（毫秒），0 表示非阻塞
+   * @return 成功返回true，超时或停止返回false
+   */
+  bool PushFrameTimeout(AVFramePtr frame,
+                        const FrameTimestamp& timestamp,
+                        int timeout_ms = 100);
+
+  /**
    * @brief 清空视频帧队列
    */
   void ClearFrames();
@@ -171,7 +182,8 @@ class VideoPlayer {
   // 视频帧队列 (使用通用的 MediaFrame)
   mutable std::mutex frame_queue_mutex_;
   std::queue<std::unique_ptr<MediaFrame>> frame_queue_;
-  std::condition_variable frame_available_;
+  std::condition_variable frame_available_;  // 通知消费者：有帧可用
+  std::condition_variable frame_consumed_;   // 通知生产者：有空间可用
 
   // 渲染线程
   std::unique_ptr<std::thread> render_thread_;

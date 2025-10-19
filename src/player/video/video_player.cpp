@@ -49,10 +49,11 @@ bool VideoPlayer::Start() {
 }
 
 void VideoPlayer::Stop() {
-  MODULE_INFO(LOG_MODULE_VIDEO, "VideoPlayer Stop called");
+  MODULE_INFO(LOG_MODULE_VIDEO, "Stopping VideoPlayer");
 
-  // 通知可能在等待的线程
-  frame_available_.notify_all();
+  // ✅ 唤醒所有等待的线程（包括生产者和消费者）
+  frame_available_.notify_all();  // 唤醒渲染线程
+  frame_consumed_.notify_all();   // 唤醒解码线程
 
   // 等待渲染线程结束
   if (render_thread_ && render_thread_->joinable()) {
@@ -75,6 +76,10 @@ void VideoPlayer::Pause() {
 void VideoPlayer::Resume() {
   // 唤醒可能在 WaitForResume() 中阻塞的渲染线程
   frame_available_.notify_all();
+
+  // ✅ 同时唤醒可能在等待队列空间的解码线程
+  frame_consumed_.notify_all();
+
   MODULE_INFO(LOG_MODULE_VIDEO, "VideoPlayer resumed");
 }
 
@@ -109,10 +114,49 @@ bool VideoPlayer::PushFrame(AVFramePtr frame, const FrameTimestamp& timestamp) {
   return true;
 }
 
+bool VideoPlayer::PushFrameTimeout(AVFramePtr frame,
+                                   const FrameTimestamp& timestamp,
+                                   int timeout_ms) {
+  if (!frame || state_manager_->ShouldStop()) {
+    return false;
+  }
+
+  std::unique_lock<std::mutex> lock(frame_queue_mutex_);
+
+  // ✅ 等待队列有空间（使用条件变量替代 sleep 轮询）
+  if (timeout_ms > 0) {
+    bool success = frame_consumed_.wait_for(
+        lock, std::chrono::milliseconds(timeout_ms), [this] {
+          return state_manager_->ShouldStop() ||
+                 frame_queue_.size() <
+                     static_cast<size_t>(config_.max_frame_queue_size);
+        });
+
+    if (!success || state_manager_->ShouldStop()) {
+      return false;  // 超时或停止
+    }
+  } else {
+    // timeout_ms == 0，非阻塞模式
+    if (frame_queue_.size() >=
+        static_cast<size_t>(config_.max_frame_queue_size)) {
+      return false;
+    }
+  }
+
+  auto media_frame = std::make_unique<MediaFrame>(std::move(frame), timestamp);
+  frame_queue_.push(std::move(media_frame));
+  frame_available_.notify_one();
+
+  return true;
+}
+
 void VideoPlayer::ClearFrames() {
   std::lock_guard<std::mutex> lock(frame_queue_mutex_);
   std::queue<std::unique_ptr<MediaFrame>> empty_queue;
   frame_queue_.swap(empty_queue);
+
+  // ✅ 清空后通知等待的生产者：现在有大量空间了
+  frame_consumed_.notify_all();
 }
 
 void VideoPlayer::ResetTimestamps() {
@@ -167,6 +211,9 @@ void VideoPlayer::VideoRenderThread() {
 
       video_frame = std::move(frame_queue_.front());
       frame_queue_.pop();
+
+      // ✅ 通知生产者：队列有空间了
+      frame_consumed_.notify_one();
     }
 
     auto current_time = std::chrono::steady_clock::now();

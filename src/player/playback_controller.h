@@ -11,8 +11,8 @@
 #include "loki/src/callback.h"
 #include "loki/src/threading/loki_thread.h"
 #include "player/codec/decode.h"
+#include "player/common/blocking_queue.h"
 #include "player/common/player_state_manager.h"
-#include "player/common/thread_safe_queue.h"
 #include "player/sync/av_sync_controller.h"
 
 extern "C" {
@@ -166,9 +166,9 @@ class PlaybackController {
   // 状态管理器（共享）
   std::shared_ptr<PlayerStateManager> state_manager_;
 
-  // 数据队列
-  ThreadSafeQueue<AVPacket*> video_packet_queue_;
-  ThreadSafeQueue<AVPacket*> audio_packet_queue_;
+  // 数据队列（使用 BlockingQueue 替代轮询）
+  BlockingQueue<AVPacket*> video_packet_queue_{80};  // 视频包队列，容量 200
+  BlockingQueue<AVPacket*> audio_packet_queue_{80};  // 音频包队列，容量 200
 
   // 解码线程（使用std::thread，因为需要持续运行）
   std::unique_ptr<std::thread> demux_thread_;
@@ -178,7 +178,7 @@ class PlaybackController {
 
   // Seek 专用线程和队列
   std::unique_ptr<std::thread> seek_thread_;
-  ThreadSafeQueue<SeekRequest> seek_request_queue_;
+  BlockingQueue<SeekRequest> seek_request_queue_{10};  // Seek 请求队列，容量 10
   std::atomic<bool> seeking_{false};
 };
 

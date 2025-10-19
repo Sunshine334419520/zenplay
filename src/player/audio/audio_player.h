@@ -95,6 +95,17 @@ class AudioPlayer {
   bool PushFrame(AVFramePtr frame, const FrameTimestamp& timestamp);
 
   /**
+   * @brief 推送音频帧到播放队列（带超时的阻塞版本）
+   * @param frame 音频帧
+   * @param timestamp 时间戳信息
+   * @param timeout_ms 超时时间（毫秒），0 表示非阻塞
+   * @return 成功返回true，超时或停止返回false
+   */
+  bool PushFrameTimeout(AVFramePtr frame,
+                        const FrameTimestamp& timestamp,
+                        int timeout_ms = 100);
+
+  /**
    * @brief 清空音频帧队列
    */
   void ClearFrames();
@@ -201,6 +212,7 @@ class AudioPlayer {
   // 音频帧队列 (使用通用的 MediaFrame 结构)
   mutable std::mutex frame_queue_mutex_;
   std::queue<std::unique_ptr<MediaFrame>> frame_queue_;
+  std::condition_variable frame_consumed_;  // ✅ 通知生产者：有空间可用
   // ✅ 增大队列以避免启动时大量丢帧
   // WASAPI第一次callback会请求100毫秒数据(~10帧)，所以队列需要更大
   static const size_t MAX_QUEUE_SIZE = 80;
