@@ -83,8 +83,12 @@ bool PlayerStateManager::RequestStateChange(PlayerState new_state) {
   // 通知状态变更
   NotifyStateChange(old_state, new_state);
 
-  // 如果转换到播放状态，唤醒等待的线程
-  if (new_state == PlayerState::kPlaying) {
+  // ✅ 唤醒等待的线程（关键修复）
+  // 1. 转换到 Playing：恢复播放
+  // 2. 转换到 Stopped/Idle/Error：停止信号，让 WaitForResume() 返回
+  if (new_state == PlayerState::kPlaying ||
+      new_state == PlayerState::kStopped || new_state == PlayerState::kIdle ||
+      new_state == PlayerState::kError) {
     pause_cv_.notify_all();
   }
 
