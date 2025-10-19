@@ -1,0 +1,151 @@
+name: Unit Tests CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  test-windows:
+    name: Unit Tests (Windows)
+    runs-on: windows-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      
+      - name: Install Conan
+        run: |
+          pip install conan
+          conan --version
+      
+      - name: Configure Conan profile
+        run: |
+          conan profile detect --force
+      
+      - name: Install Dependencies
+        run: |
+          conan install . --output-folder=build --build=missing -s build_type=Debug
+      
+      - name: Configure CMake
+        run: |
+          cmake -B build -DBUILD_TESTING=ON -DCMAKE_BUILD_TYPE=Debug
+      
+      - name: Build
+        run: |
+          cmake --build build --config Debug
+      
+      - name: Run Unit Tests
+        run: |
+          cd build
+          ctest --output-on-failure --config Debug -V
+      
+      - name: Upload Test Results
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: test-results-windows
+          path: build/Testing/Temporary/LastTest.log
+
+  test-linux:
+    name: Unit Tests (Linux)
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake ninja-build
+      
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      
+      - name: Install Conan
+        run: |
+          pip install conan
+          conan --version
+      
+      - name: Configure Conan profile
+        run: |
+          conan profile detect --force
+      
+      - name: Install Dependencies
+        run: |
+          conan install . --output-folder=build --build=missing -s build_type=Debug
+      
+      - name: Configure CMake
+        run: |
+          cmake -B build -DBUILD_TESTING=ON -DCMAKE_BUILD_TYPE=Debug
+      
+      - name: Build
+        run: |
+          cmake --build build --config Debug
+      
+      - name: Run Unit Tests
+        run: |
+          cd build
+          ctest --output-on-failure --config Debug -V
+      
+      - name: Upload Test Results
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: test-results-linux
+          path: build/Testing/Temporary/LastTest.log
+
+  test-macos:
+    name: Unit Tests (macOS)
+    runs-on: macos-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      
+      - name: Install Conan
+        run: |
+          pip install conan
+          conan --version
+      
+      - name: Configure Conan profile
+        run: |
+          conan profile detect --force
+      
+      - name: Install Dependencies
+        run: |
+          conan install . --output-folder=build --build=missing -s build_type=Debug
+      
+      - name: Configure CMake
+        run: |
+          cmake -B build -DBUILD_TESTING=ON -DCMAKE_BUILD_TYPE=Debug
+      
+      - name: Build
+        run: |
+          cmake --build build --config Debug
+      
+      - name: Run Unit Tests
+        run: |
+          cd build
+          ctest --output-on-failure --config Debug -V
+      
+      - name: Upload Test Results
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: test-results-macos
+          path: build/Testing/Temporary/LastTest.log
