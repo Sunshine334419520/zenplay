@@ -163,6 +163,9 @@ class PlaybackController {
   std::unique_ptr<VideoPlayer> video_player_;
   std::unique_ptr<AVSyncController> av_sync_controller_;
 
+  // ✅ 音频重采样器（在解码线程中使用）
+  std::unique_ptr<class AudioResampler> audio_resampler_;
+
   // 状态管理器（共享）
   std::shared_ptr<PlayerStateManager> state_manager_;
 

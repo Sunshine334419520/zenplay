@@ -5,6 +5,7 @@
 #include "loki/src/bind_util.h"
 #include "loki/src/location.h"
 #include "player/audio/audio_player.h"
+#include "player/audio/audio_resampler.h"
 #include "player/codec/audio_decoder.h"
 #include "player/codec/video_decoder.h"
 #include "player/common/log_manager.h"
@@ -35,13 +36,41 @@ PlaybackController::PlaybackController(
   // 初始化音视频同步控制器
   av_sync_controller_ = std::make_unique<AVSyncController>();
 
-  // 初始化音频播放器并传递state_manager和sync_controller
+  // ✅ 初始化音频播放器（先初始化，获取硬件支持的格式）
   audio_player_ = std::make_unique<AudioPlayer>(state_manager_.get(),
                                                 av_sync_controller_.get());
-  if (!audio_player_->Init()) {
+
+  // ✅ 使用 AudioPlayer 的配置来设置重采样器
+  // 原因：AudioPlayer::Init() 会根据硬件能力选择最佳配置
+  AudioPlayer::AudioConfig audio_config;
+  // 注意：这里可以从配置文件或用户设置中读取
+  // 默认使用常见的 CD 音质配置
+  audio_config.target_sample_rate = 44100;         // CD 音质标准
+  audio_config.target_channels = 2;                // 立体声
+  audio_config.target_format = AV_SAMPLE_FMT_S16;  // 16位整数
+  audio_config.target_bits_per_sample = 16;
+  audio_config.buffer_size = 1024;  // 缓冲区大小
+
+  if (!audio_player_->Init(audio_config)) {
     MODULE_ERROR(LOG_MODULE_PLAYER, "Failed to initialize audio player");
     audio_player_.reset();
   }
+
+  // ✅ 初始化音频重采样器（使用与 AudioPlayer 一致的配置）
+  audio_resampler_ = std::make_unique<AudioResampler>();
+  AudioResampler::ResamplerConfig resampler_config;
+  resampler_config.target_sample_rate = audio_config.target_sample_rate;
+  resampler_config.target_channels = audio_config.target_channels;
+  resampler_config.target_format = audio_config.target_format;
+  resampler_config.target_bits_per_sample = audio_config.target_bits_per_sample;
+  resampler_config.enable_simd = true;  // 启用 SIMD 优化
+  audio_resampler_->SetConfig(resampler_config);
+
+  MODULE_INFO(LOG_MODULE_PLAYER,
+              "Audio resampler configured: {}Hz, {} channels, {} bits",
+              resampler_config.target_sample_rate,
+              resampler_config.target_channels,
+              resampler_config.target_bits_per_sample);
 
   // 根据音视频流的存在情况智能选择同步模式
   bool has_audio = audio_decoder_ && audio_decoder_->opened();
@@ -160,18 +189,12 @@ bool PlaybackController::Start() {
 void PlaybackController::Stop() {
   MODULE_INFO(LOG_MODULE_PLAYER, "Stopping PlaybackController");
 
+  // ✅ StopAllThreads 内部会调用 audio_player_->Stop() 和 video_player_->Stop()
+  // 这样可以确保在 join 之前，播放器的队列已经停止
   StopAllThreads();
 
   // 清空所有队列（packet 队列需要手动清空）
   ClearAllQueues();
-
-  // 停止播放器
-  if (audio_player_) {
-    audio_player_->Stop();
-  }
-  if (video_player_) {
-    video_player_->Stop();
-  }
 
   MODULE_INFO(LOG_MODULE_PLAYER, "PlaybackController stopped");
 }
@@ -452,9 +475,9 @@ void PlaybackController::AudioDecodeTask() {
       audio_decoder_->Flush(&frames);
 
       for (auto& frame : frames) {
-        if (audio_player_) {
-          // 创建时间戳信息 (与 VideoPlayer 保持一致)
-          AudioPlayer::FrameTimestamp timestamp;
+        if (audio_player_ && audio_resampler_) {
+          // 创建时间戳信息
+          MediaTimestamp timestamp;
           timestamp.pts = frame->pts;
           timestamp.dts = frame->pkt_dts;
 
@@ -467,7 +490,11 @@ void PlaybackController::AudioDecodeTask() {
             }
           }
 
-          audio_player_->PushFrameTimeout(std::move(frame), timestamp, 100);
+          // ✅ Flush时也使用相同的重采样流程
+          ResampledAudioFrame resampled;
+          if (audio_resampler_->Resample(frame.get(), timestamp, resampled)) {
+            audio_player_->PushFrame(std::move(resampled));
+          }
         }
       }
       break;
@@ -481,9 +508,9 @@ void PlaybackController::AudioDecodeTask() {
 
     if (decode_success) {
       for (auto& frame : frames) {
-        if (audio_player_) {
-          // 创建时间戳信息 (与 VideoPlayer 保持一致)
-          AudioPlayer::FrameTimestamp timestamp;
+        if (audio_player_ && audio_resampler_) {
+          // 创建时间戳信息
+          MediaTimestamp timestamp;
           timestamp.pts = frame->pts;
           timestamp.dts = frame->pkt_dts;
 
@@ -496,8 +523,16 @@ void PlaybackController::AudioDecodeTask() {
             }
           }
 
-          // ✅ 使用 PushFrameTimeout，阻塞等待队列有空间（100ms超时）
-          audio_player_->PushFrameTimeout(std::move(frame), timestamp, 100);
+          // ✅ 重构后的架构：职责分离
+          // Step 1: AudioResampler 执行重采样（在解码线程）
+          ResampledAudioFrame resampled;
+          if (!audio_resampler_->Resample(frame.get(), timestamp, resampled)) {
+            MODULE_ERROR(LOG_MODULE_AUDIO, "Audio resample failed");
+            continue;
+          }
+
+          // Step 2: AudioPlayer 管理播放队列（BlockingQueue自动流控）
+          audio_player_->PushFrame(std::move(resampled));
         }
       }
     }
@@ -539,11 +574,22 @@ void PlaybackController::SyncControlTask() {
 }
 
 void PlaybackController::StopAllThreads() {
-  // 停止队列
+  // ✅ 第一步：停止所有队列（唤醒阻塞的线程）
+  // 注意：必须在 join 之前停止，否则会死锁
   video_packet_queue_.Stop();
   audio_packet_queue_.Stop();
   seek_request_queue_.Stop();
 
+  // ✅ 第二步：停止播放器的队列（解码线程可能在 PushFrame 时阻塞）
+  // 这一步非常关键！否则解码线程会在 Push 时永久阻塞
+  if (audio_player_) {
+    audio_player_->Stop();  // 内部会调用 frame_queue_.Stop()
+  }
+  if (video_player_) {
+    video_player_->Stop();  // 内部会调用 frame_queue_.Stop()
+  }
+
+  // ✅ 第三步：等待所有线程退出
   if (seek_thread_ && seek_thread_->joinable()) {
     seek_thread_->join();
     seek_thread_.reset();

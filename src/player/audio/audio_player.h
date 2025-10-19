@@ -8,10 +8,11 @@
 
 extern "C" {
 #include <libavutil/frame.h>
-#include <libswresample/swresample.h>
 }
 
 #include "player/audio/audio_output.h"
+#include "player/audio/resampled_audio_frame.h"
+#include "player/common/blocking_queue.h"
 #include "player/common/common_def.h"
 #include "player/common/player_state_manager.h"
 #include "player/sync/av_sync_controller.h"
@@ -19,11 +20,23 @@ extern "C" {
 namespace zenplay {
 
 /**
- * @brief 音频播放器
+ * @brief 音频播放器（重构版 - 职责简化）
  *
- * 负责从音频帧队列中取出解码后的音频数据，
- * 进行格式转换和重采样，然后通过AudioOutput播放
- * 同时作为音视频同步的主时钟源
+ * 核心职责：
+ * 1. 管理播放队列（ResampledAudioFrame）
+ * 2. 控制音频输出设备（AudioOutput）
+ * 3. 跟踪播放时钟（PTS 管理）
+ * 4. 音视频同步（与 AVSyncController 协作）
+ *
+ * 不再负责：
+ * - ❌ 重采样逻辑（已移至 AudioResampler）
+ * - ❌ SwrContext 管理（已移至 AudioResampler）
+ *
+ * 调用流程：
+ * PlaybackController::AudioDecodeTask
+ *   → AudioResampler::Resample (解码线程)
+ *   → AudioPlayer::PushFrame (推入播放队列)
+ *   → AudioPlayer::FillAudioBuffer (音频回调，仅 memcpy)
  */
 class AudioPlayer {
  public:
@@ -87,23 +100,22 @@ class AudioPlayer {
   float GetVolume() const;
 
   /**
-   * @brief 推送音频帧到播放队列
-   * @param frame 音频帧
-   * @param timestamp 时间戳信息 (与 VideoPlayer 保持一致)
+   * @brief 推送重采样后的帧到播放队列
+   * @param frame 重采样后的音频帧
    * @return 成功返回true
+   *
+   * @note 由 PlaybackController::AudioDecodeTask 调用
+   * @note 使用 BlockingQueue，队列满时会阻塞
    */
-  bool PushFrame(AVFramePtr frame, const FrameTimestamp& timestamp);
+  bool PushFrame(ResampledAudioFrame frame);
 
   /**
-   * @brief 推送音频帧到播放队列（带超时的阻塞版本）
-   * @param frame 音频帧
-   * @param timestamp 时间戳信息
-   * @param timeout_ms 超时时间（毫秒），0 表示非阻塞
+   * @brief 推送重采样后的帧（带超时）
+   * @param frame 重采样后的音频帧
+   * @param timeout_ms 超时时间（毫秒）
    * @return 成功返回true，超时或停止返回false
    */
-  bool PushFrameTimeout(AVFramePtr frame,
-                        const FrameTimestamp& timestamp,
-                        int timeout_ms = 100);
+  bool PushFrameTimeout(ResampledAudioFrame frame, int timeout_ms = 100);
 
   /**
    * @brief 清空音频帧队列
@@ -154,28 +166,13 @@ class AudioPlayer {
                                  int buffer_size);
 
   /**
-   * @brief 初始化重采样器
-   * @param frame 第一个音频帧，用于获取源格式信息
-   * @return 成功返回true
-   */
-  bool InitializeResampler(const AVFrame* frame);
-
-  /**
-   * @brief 重采样音频帧
-   * @param frame 源音频帧
-   * @param output_buffer 输出缓冲区
-   * @param max_output_samples 最大输出采样数
-   * @return 实际输出的采样数，-1表示错误
-   */
-  int ResampleFrame(const AVFrame* frame,
-                    uint8_t** output_buffer,
-                    int max_output_samples);
-
-  /**
-   * @brief 填充音频输出缓冲区
+   * @brief 填充音频输出缓冲区（在音频回调中调用）
    * @param buffer 输出缓冲区
-   * @param buffer_size 缓冲区大小
+   * @param buffer_size 缓冲区大小（字节）
    * @return 实际填充的字节数
+   *
+   * @note 此函数仅做 memcpy，不执行任何计算密集操作
+   * @note 目标延迟：<0.1ms
    */
   int FillAudioBuffer(uint8_t* buffer, int buffer_size);
 
@@ -203,29 +200,22 @@ class AudioPlayer {
   size_t samples_played_since_base_{0};   // 从基准开始已播放的采样数
   int target_sample_rate_{44100};         // 目标采样率
 
-  // 重采样器
-  SwrContext* swr_context_;
-  uint8_t** resampled_data_;
-  int resampled_data_size_;
-  int max_resampled_samples_;
+  // ========== 播放队列（AudioResampler 生产，音频回调消费） ==========
 
-  // 音频帧队列 (使用通用的 MediaFrame 结构)
-  mutable std::mutex frame_queue_mutex_;
-  std::queue<std::unique_ptr<MediaFrame>> frame_queue_;
-  std::condition_variable frame_consumed_;  // ✅ 通知生产者：有空间可用
-  // ✅ 增大队列以避免启动时大量丢帧
-  // WASAPI第一次callback会请求100毫秒数据(~10帧)，所以队列需要更大
-  static const size_t MAX_QUEUE_SIZE = 80;
+  /**
+   * @brief 播放队列（重采样后的 PCM 帧）
+   * - 生产者：PlaybackController::AudioDecodeTask（通过 AudioResampler）
+   * - 消费者：AudioPlayer::FillAudioBuffer（音频回调）
+   * - 容量：50帧 @ 44.1kHz/1024样本 ≈ 1.2秒缓冲
+   * - 流控：BlockingQueue 自动阻塞，匹配解码速度和播放速度
+   */
+  BlockingQueue<ResampledAudioFrame> frame_queue_{50};
 
-  // 内部缓冲区
-  std::vector<uint8_t> internal_buffer_;
-  size_t buffer_read_pos_;
+  // ========== 音频回调相关 ==========
 
-  // 源音频格式信息(从第一帧获取)
-  int src_sample_rate_;
-  int src_channels_;
-  AVSampleFormat src_format_;
-  bool format_initialized_;
+  // 当前正在消费的帧（部分消费支持）
+  ResampledAudioFrame current_playback_frame_;
+  size_t current_frame_offset_ = 0;  // 当前帧的读取偏移（字节）
 
   // 音频渲染状态跟踪
   bool last_fill_had_real_data_;  // 上次 FillAudioBuffer 是否有真实音频数据
