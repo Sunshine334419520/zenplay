@@ -20,6 +20,9 @@ set(PLAYER_SOURCES
     # 统计管理（AVSyncController 依赖）
     ${CMAKE_SOURCE_DIR}/src/player/stats/statistics_manager.cpp
     
+    # PlayerStateManager（WaitForResume 测试依赖）
+    ${CMAKE_SOURCE_DIR}/src/player/common/player_state_manager.cpp
+    
     # 其他依赖（根据实际情况添加）
     ${CMAKE_SOURCE_DIR}/src/player/common/timer.cpp
 )
@@ -30,6 +33,7 @@ set(TEST_SOURCES
     test_thread_safe_queue.cpp
     test_av_sync_controller.cpp
     test_blocking_queue.cpp
+    test_player_state_manager_wait_resume.cpp
 )
 
 # 创建测试可执行文件
