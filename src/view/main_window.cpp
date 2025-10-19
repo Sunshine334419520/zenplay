@@ -47,10 +47,13 @@ MainWindow::MainWindow(QWidget* parent)
       statusLabel_(nullptr),
       player_(std::make_unique<ZenPlayer>()),
       updateTimer_(new QTimer(this)),
+      controlBarHideTimer_(nullptr),
       isDraggingProgress_(false),
       isFullscreen_(false),
+      isControlBarVisible_(true),
       totalDuration_(0),
-      state_callback_id_(-1) {
+      state_callback_id_(-1),
+      wasMaximized_(false) {
   setupUI();
 
   // ✅ 注册状态变更监听（用于异步 Seek）
@@ -70,6 +73,16 @@ MainWindow::MainWindow(QWidget* parent)
   connect(updateTimer_, &QTimer::timeout, this,
           &MainWindow::updatePlaybackProgress);
   updateTimer_->setInterval(100);  // Update every 100ms
+
+  // 初始化控制栏自动隐藏定时器（全屏时使用）
+  controlBarHideTimer_ = new QTimer(this);
+  controlBarHideTimer_->setSingleShot(true);
+  connect(controlBarHideTimer_, &QTimer::timeout, this,
+          &MainWindow::hideControlBar);
+
+  // 安装事件过滤器以监听鼠标移动
+  videoWidget_->installEventFilter(this);
+  installEventFilter(this);
 
   // Set window properties
   setMinimumSize(800, 600);
@@ -163,34 +176,14 @@ void MainWindow::setupVideoArea() {
   videoLayout->addWidget(videoWidget_);
 
   // Connect video widget signals
-  connect(videoWidget_, &VideoDisplayWidget::doubleClicked, [this]() {
-    // Toggle fullscreen on double click
-    if (isFullscreen_) {
-      showNormal();
-      isFullscreen_ = false;
-    } else {
-      normalSize_ = size();
-      normalPosition_ = pos();
-      showFullScreen();
-      isFullscreen_ = true;
-    }
-  });
+  connect(videoWidget_, &VideoDisplayWidget::doubleClicked, this,
+          &MainWindow::toggleFullscreen);
 
   connect(videoWidget_, &VideoDisplayWidget::resized,
           [this](int width, int height) {
-            // 通知播放器窗口大小变化
+            // 通知渲染器窗口大小变化
             if (player_ && player_->IsOpened()) {
-              // 这里可能需要重新设置渲染窗口大小
-              // 或者通知渲染器更新显示区域
-              void* handle = videoWidget_->getNativeHandle();
-              if (handle) {
-                // 只是更新大小，不重新初始化整个渲染器
-                // 如果需要，可以添加Renderer::OnResize方法
-                /*
-                MODULE_DEBUG(LOG_MODULE_UI, "Video widget resized to {}x{}",
-                             width, height);
-                             */
-              }
+              player_->OnWindowResize(width, height);
             }
           });
 
@@ -308,9 +301,9 @@ void MainWindow::setupControlBar() {
   // Fullscreen button
   fullscreenBtn_ = new QPushButton("⛶", this);
   fullscreenBtn_->setFixedSize(40, 40);
-  connect(fullscreenBtn_, &QPushButton::clicked, [this]() {
-    videoWidget_->doubleClicked();  // Reuse the double-click logic
-  });
+  fullscreenBtn_->setToolTip("全屏 (F11 / 双击视频)");
+  connect(fullscreenBtn_, &QPushButton::clicked, this,
+          &MainWindow::toggleFullscreen);
   controlLayout_->addWidget(fullscreenBtn_);
 
   mainLayout_->addWidget(controlBar_);
@@ -720,14 +713,9 @@ void MainWindow::handlePlayerStateChanged(
 void MainWindow::resizeEvent(QResizeEvent* event) {
   QMainWindow::resizeEvent(event);
 
-  // Update SDL renderer size when window resizes
+  // 通知 SDL 渲染器窗口大小变化
   if (player_ && videoWidget_ && player_->IsOpened()) {
-    // 通知渲染器窗口大小变化
-    void* handle = videoWidget_->getNativeHandle();
-    if (handle) {
-      // TODO: 添加 ZenPlayer::OnWindowResize 方法
-      // player_->OnWindowResize(videoWidget_->width(), videoWidget_->height());
-    }
+    player_->OnWindowResize(videoWidget_->width(), videoWidget_->height());
   }
 }
 
@@ -780,8 +768,185 @@ void VideoDisplayWidget::resizeEvent(QResizeEvent* event) {
 }
 
 void VideoDisplayWidget::mouseDoubleClickEvent(QMouseEvent* event) {
-  Q_UNUSED(event)
+  Q_UNUSED(event);
   emit doubleClicked();
+}
+
+// ============ 全屏功能实现 ============
+
+void MainWindow::toggleFullscreen() {
+  if (isFullscreen_) {
+    exitFullscreen();
+  } else {
+    enterFullscreen();
+  }
+}
+
+void MainWindow::enterFullscreen() {
+  // 保存当前窗口状态
+  if (!isFullscreen_) {
+    wasMaximized_ = isMaximized();
+    if (!wasMaximized_) {
+      normalGeometry_ = geometry();
+    }
+  }
+
+  isFullscreen_ = true;
+  isControlBarVisible_ = true;  // 初始显示控制栏
+
+  // 隐藏菜单栏和状态栏
+  menuBar()->hide();
+  statusBar()->hide();
+
+  // 进入全屏
+  showFullScreen();
+
+  // 更新全屏按钮图标
+  updateFullscreenButton();
+
+  // 启动控制栏自动隐藏定时器（3秒后隐藏）
+  controlBarHideTimer_->start(3000);
+}
+
+void MainWindow::exitFullscreen() {
+  isFullscreen_ = false;
+  isControlBarVisible_ = true;
+
+  // 停止控制栏隐藏定时器
+  controlBarHideTimer_->stop();
+
+  // 确保控制栏可见
+  if (controlBar_) {
+    controlBar_->show();
+  }
+
+  // 显示菜单栏和状态栏
+  menuBar()->show();
+  statusBar()->show();
+
+  // 退出全屏
+  showNormal();
+
+  // 恢复窗口状态
+  if (wasMaximized_) {
+    showMaximized();
+  } else if (!normalGeometry_.isEmpty()) {
+    setGeometry(normalGeometry_);
+  }
+
+  // 更新全屏按钮图标
+  updateFullscreenButton();
+}
+
+void MainWindow::showControlBar() {
+  if (!isFullscreen_) {
+    return;
+  }
+
+  if (!isControlBarVisible_ && controlBar_) {
+    controlBar_->show();
+    isControlBarVisible_ = true;
+  }
+
+  // 重置自动隐藏定时器
+  controlBarHideTimer_->start(3000);
+
+  // 显示鼠标光标
+  setCursor(Qt::ArrowCursor);
+}
+
+void MainWindow::hideControlBar() {
+  if (!isFullscreen_) {
+    return;
+  }
+
+  if (isControlBarVisible_ && controlBar_) {
+    controlBar_->hide();
+    isControlBarVisible_ = false;
+  }
+
+  // 隐藏鼠标光标
+  setCursor(Qt::BlankCursor);
+}
+
+void MainWindow::updateFullscreenButton() {
+  if (!fullscreenBtn_) {
+    return;
+  }
+
+  if (isFullscreen_) {
+    fullscreenBtn_->setText("⛉");  // 退出全屏图标
+    fullscreenBtn_->setToolTip(tr("退出全屏 (ESC / F11)"));
+  } else {
+    fullscreenBtn_->setText("⛶");  // 全屏图标
+    fullscreenBtn_->setToolTip(tr("全屏 (F11 / 双击视频)"));
+  }
+}
+
+void MainWindow::keyPressEvent(QKeyEvent* event) {
+  switch (event->key()) {
+    case Qt::Key_Escape:
+      // ESC 键退出全屏
+      if (isFullscreen_) {
+        exitFullscreen();
+        event->accept();
+        return;
+      }
+      break;
+
+    case Qt::Key_F11:
+      // F11 切换全屏
+      toggleFullscreen();
+      event->accept();
+      return;
+
+    case Qt::Key_Space:
+      // 空格键播放/暂停
+      if (playPauseBtn_ && playPauseBtn_->isEnabled()) {
+        playPauseBtn_->click();
+        event->accept();
+        return;
+      }
+      break;
+
+    case Qt::Key_Left:
+      // 左箭头后退5秒
+      if (player_ && player_->IsOpened()) {
+        int64_t current = player_->GetCurrentPlayTime();
+        int64_t target = std::max(0LL, current - 5000);  // 减5秒（毫秒）
+        player_->SeekAsync(target);
+        event->accept();
+        return;
+      }
+      break;
+
+    case Qt::Key_Right:
+      // 右箭头前进5秒
+      if (player_ && player_->IsOpened()) {
+        int64_t current = player_->GetCurrentPlayTime();
+        int64_t duration = player_->GetDuration();
+        int64_t target = std::min(duration, current + 5000);  // 加5秒（毫秒）
+        player_->SeekAsync(target);
+        event->accept();
+        return;
+      }
+      break;
+
+    default:
+      break;
+  }
+
+  QMainWindow::keyPressEvent(event);
+}
+
+bool MainWindow::eventFilter(QObject* obj, QEvent* event) {
+  // 在全屏模式下，监听鼠标移动以显示/隐藏控制栏
+  if (isFullscreen_ && event->type() == QEvent::MouseMove) {
+    // 鼠标移动时显示控制栏
+    showControlBar();
+  }
+
+  return QMainWindow::eventFilter(obj, event);
 }
 
 }  // namespace zenplay

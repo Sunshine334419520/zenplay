@@ -72,6 +72,19 @@ class MainWindow : public QMainWindow {
   void resetProgress();
   QString formatTime(int64_t milliseconds) const;  // 格式化毫秒为 HH:MM:SS.mmm
 
+  // 全屏相关
+  void toggleFullscreen();
+  void enterFullscreen();
+  void exitFullscreen();
+  void updateFullscreenButton();
+  void keyPressEvent(QKeyEvent* event) override;
+
+  // 控制栏自动隐藏（全屏时）
+  void startControlBarHideTimer();
+  void showControlBar();
+  void hideControlBar();
+  bool eventFilter(QObject* obj, QEvent* event) override;
+
  private:
   // UI Components
   QWidget* centralWidget_;
@@ -105,10 +118,12 @@ class MainWindow : public QMainWindow {
   // Player and timer
   std::unique_ptr<ZenPlayer> player_;
   QTimer* updateTimer_;
+  QTimer* controlBarHideTimer_;  // 全屏时自动隐藏控制栏的定时器
 
   // State
   bool isDraggingProgress_;
   bool isFullscreen_;
+  bool isControlBarVisible_;  // 控制栏是否可见（全屏时使用）
   QString currentMediaPath_;
   int64_t totalDuration_;  // 总时长（毫秒）
   int state_callback_id_;  // 状态回调 ID
@@ -116,6 +131,8 @@ class MainWindow : public QMainWindow {
   // Window properties
   QSize normalSize_;
   QPoint normalPosition_;
+  QRect normalGeometry_;  // 保存窗口化模式的完整几何信息
+  bool wasMaximized_;     // 进入全屏前是否是最大化状态
 };
 
 // Custom video display widget for SDL rendering

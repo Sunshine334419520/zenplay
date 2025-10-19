@@ -101,6 +101,17 @@ bool ZenPlayer::SetRenderWindow(void* window_handle, int width, int height) {
   return true;  // 立即返回
 }
 
+void ZenPlayer::OnWindowResize(int width, int height) {
+  if (!is_opened_ || !renderer_) {
+    MODULE_DEBUG(LOG_MODULE_PLAYER,
+                 "Resize ignored: player not opened or renderer not available");
+    return;
+  }
+
+  MODULE_DEBUG(LOG_MODULE_PLAYER, "Window resized to {}x{}", width, height);
+  renderer_->OnResize(width, height);
+}
+
 void ZenPlayer::Close() {
   if (!is_opened_) {
     return;

@@ -24,6 +24,9 @@ class ZenPlayer {
   // 设置渲染窗口句柄
   bool SetRenderWindow(void* window_handle, int width, int height);
 
+  // 通知渲染器窗口大小变化
+  void OnWindowResize(int width, int height);
+
   bool Play();
   bool Pause();
   bool Stop();

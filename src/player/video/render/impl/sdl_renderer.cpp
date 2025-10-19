@@ -115,8 +115,20 @@ void SDLRenderer::Present() {
 }
 
 void SDLRenderer::OnResize(int width, int height) {
+  if (width <= 0 || height <= 0) {
+    MODULE_WARN(LOG_MODULE_RENDERER, "Invalid resize dimensions: {}x{}", width,
+                height);
+    return;
+  }
+
+  MODULE_DEBUG(LOG_MODULE_RENDERER, "Renderer resize: {}x{} -> {}x{}",
+               window_width_, window_height_, width, height);
+
   window_width_ = width;
   window_height_ = height;
+
+  // SDL 渲染器会自动适应窗口大小变化
+  // 下次 RenderFrame 时会使用新的尺寸重新计算显示矩形
 }
 
 void SDLRenderer::Cleanup() {
