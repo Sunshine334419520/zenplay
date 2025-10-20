@@ -11,6 +11,9 @@ set(PLAYER_SOURCES
     # 通用工具（ThreadSafeQueue 是 header-only，无需编译）
     # 如果有其他 .cpp 文件需要添加
     
+    # 错误处理系统
+    ${CMAKE_SOURCE_DIR}/src/player/common/error.cpp
+    
     # AVSyncController
     ${CMAKE_SOURCE_DIR}/src/player/sync/av_sync_controller.cpp
     
@@ -30,6 +33,7 @@ set(PLAYER_SOURCES
 # 收集测试文件
 set(TEST_SOURCES
     test_main.cpp
+    test_result_error.cpp
     test_thread_safe_queue.cpp
     test_av_sync_controller.cpp
     test_blocking_queue.cpp
