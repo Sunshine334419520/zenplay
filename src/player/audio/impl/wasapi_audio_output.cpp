@@ -9,6 +9,7 @@
 #pragma comment(lib, "ole32.lib")
 
 #include "player/common/log_manager.h"
+#include "player/common/win32_error_utils.h"
 
 namespace zenplay {
 
@@ -31,51 +32,68 @@ WasapiAudioOutput::~WasapiAudioOutput() {
   Cleanup();
 }
 
-bool WasapiAudioOutput::Init(const AudioSpec& spec,
-                             AudioOutputCallback callback,
-                             void* user_data) {
+Result<void> WasapiAudioOutput::Init(const AudioSpec& spec,
+                                     AudioOutputCallback callback,
+                                     void* user_data) {
+  if (!callback) {
+    return Result<void>::Err(ErrorCode::kInvalidParameter,
+                             "Audio callback is null");
+  }
+
+  if (spec.sample_rate <= 0 || spec.channels <= 0) {
+    return Result<void>::Err(
+        ErrorCode::kInvalidParameter,
+        "Invalid audio spec: sample_rate=" + std::to_string(spec.sample_rate) +
+            ", channels=" + std::to_string(spec.channels));
+  }
+
   audio_spec_ = spec;
   audio_callback_ = callback;
   user_data_ = user_data;
 
   // 1. 初始化COM
   if (!InitializeCOM()) {
-    std::cerr << "Failed to initialize COM" << std::endl;
-    return false;
+    return Result<void>::Err(ErrorCode::kAudioError,
+                             "Failed to initialize COM");
   }
 
   // 2. 获取默认音频设备
   if (!GetDefaultAudioDevice()) {
-    std::cerr << "Failed to get default audio device" << std::endl;
-    return false;
+    return Result<void>::Err(ErrorCode::kDeviceNotFound,
+                             "Failed to get default audio device");
   }
 
   // 3. 创建音频客户端
   if (!CreateAudioClient()) {
-    std::cerr << "Failed to create audio client" << std::endl;
-    return false;
+    return Result<void>::Err(ErrorCode::kAudioError,
+                             "Failed to create audio client");
   }
 
   // 4. 配置音频格式
   if (!ConfigureAudioFormat()) {
-    std::cerr << "Failed to configure audio format" << std::endl;
-    return false;
+    return Result<void>::Err(ErrorCode::kAudioError,
+                             "Failed to configure audio format");
   }
 
-  return true;
+  return Result<void>::Ok();
 }
 
-bool WasapiAudioOutput::Start() {
+Result<void> WasapiAudioOutput::Start() {
   if (is_playing_.load()) {
     MODULE_WARN(LOG_MODULE_AUDIO, "WASAPI already playing");
-    return true;
+    return Result<void>::Ok();  // 已经在播放，不算错误
+  }
+
+  if (!audio_client_) {
+    return Result<void>::Err(ErrorCode::kNotInitialized,
+                             "Audio client not initialized");
   }
 
   MODULE_INFO(LOG_MODULE_AUDIO, "Starting WASAPI audio output");
 
   if (!StartAudioService()) {
-    MODULE_ERROR(LOG_MODULE_AUDIO, "Failed to start WASAPI audio service");
-    return false;
+    return Result<void>::Err(ErrorCode::kAudioError,
+                             "Failed to start WASAPI audio service");
   }
 
   should_stop_ = false;
@@ -87,7 +105,7 @@ bool WasapiAudioOutput::Start() {
 
   is_playing_ = true;
   MODULE_INFO(LOG_MODULE_AUDIO, "WASAPI audio output started successfully");
-  return true;
+  return Result<void>::Ok();
 }
 
 void WasapiAudioOutput::Stop() {

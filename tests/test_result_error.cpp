@@ -34,36 +34,35 @@ class ResultErrorTest : public ::testing::Test {
 
 TEST_F(ResultErrorTest, ErrorCodeToStringConversion) {
   // 测试通用错误
-  EXPECT_STREQ(ErrorCodeToString(ErrorCode::OK), "OK");
-  EXPECT_STREQ(ErrorCodeToString(ErrorCode::INVALID_PARAM), "InvalidParam");
-  EXPECT_STREQ(ErrorCodeToString(ErrorCode::UNKNOWN), "Unknown");
+  EXPECT_STREQ(ErrorCodeToString(ErrorCode::kSuccess), "Success");
+  EXPECT_STREQ(ErrorCodeToString(ErrorCode::kInvalidParameter),
+               "InvalidParameter");
+  EXPECT_STREQ(ErrorCodeToString(ErrorCode::kUnknown), "Unknown");
 
   // 测试解封装/IO 错误
-  EXPECT_STREQ(ErrorCodeToString(ErrorCode::IO_ERROR), "IOError");
-  EXPECT_STREQ(ErrorCodeToString(ErrorCode::INVALID_FILE_FORMAT),
-               "InvalidFileFormat");
-  EXPECT_STREQ(ErrorCodeToString(ErrorCode::STREAM_NOT_FOUND),
-               "StreamNotFound");
+  EXPECT_STREQ(ErrorCodeToString(ErrorCode::kIOError), "IOError");
+  EXPECT_STREQ(ErrorCodeToString(ErrorCode::kInvalidFormat), "InvalidFormat");
+  EXPECT_STREQ(ErrorCodeToString(ErrorCode::kStreamNotFound), "StreamNotFound");
 
   // 测试解码错误
-  EXPECT_STREQ(ErrorCodeToString(ErrorCode::DECODER_ERROR), "DecoderError");
-  EXPECT_STREQ(ErrorCodeToString(ErrorCode::UNSUPPORTED_CODEC),
+  EXPECT_STREQ(ErrorCodeToString(ErrorCode::kDecoderError), "DecoderError");
+  EXPECT_STREQ(ErrorCodeToString(ErrorCode::kUnsupportedCodec),
                "UnsupportedCodec");
-  EXPECT_STREQ(ErrorCodeToString(ErrorCode::DECODER_INIT_FAILED),
+  EXPECT_STREQ(ErrorCodeToString(ErrorCode::kDecoderInitFailed),
                "DecoderInitFailed");
 
   // 测试音频错误
-  EXPECT_STREQ(ErrorCodeToString(ErrorCode::AUDIO_ERROR), "AudioError");
-  EXPECT_STREQ(ErrorCodeToString(ErrorCode::AUDIO_DEVICE_NOT_FOUND),
+  EXPECT_STREQ(ErrorCodeToString(ErrorCode::kAudioError), "AudioError");
+  EXPECT_STREQ(ErrorCodeToString(ErrorCode::kAudioDeviceNotFound),
                "AudioDeviceNotFound");
 
   // 测试网络错误
-  EXPECT_STREQ(ErrorCodeToString(ErrorCode::NETWORK_ERROR), "NetworkError");
-  EXPECT_STREQ(ErrorCodeToString(ErrorCode::CONNECTION_TIMEOUT),
+  EXPECT_STREQ(ErrorCodeToString(ErrorCode::kNetworkError), "NetworkError");
+  EXPECT_STREQ(ErrorCodeToString(ErrorCode::kConnectionTimeout),
                "ConnectionTimeout");
 
   // 测试渲染错误
-  EXPECT_STREQ(ErrorCodeToString(ErrorCode::RENDER_ERROR), "RenderError");
+  EXPECT_STREQ(ErrorCodeToString(ErrorCode::kRenderError), "RenderError");
 }
 
 TEST_F(ResultErrorTest, ErrorCodeToStringForUnknownCode) {
@@ -80,24 +79,25 @@ TEST_F(ResultErrorTest, ResultOkConstruction) {
   Result<int> r = Result<int>::Ok(42);
   EXPECT_TRUE(r.IsOk());
   EXPECT_FALSE(r.IsErr());
-  EXPECT_EQ(r.Code(), ErrorCode::OK);
+  EXPECT_EQ(r.Code(), ErrorCode::kSuccess);
   EXPECT_EQ(r.Value(), 42);
   EXPECT_EQ(r.Message(), "");
 }
 
 TEST_F(ResultErrorTest, ResultErrConstruction) {
-  Result<int> r = Result<int>::Err(ErrorCode::INVALID_PARAM, "param must > 0");
+  Result<int> r =
+      Result<int>::Err(ErrorCode::kInvalidParameter, "param must > 0");
   EXPECT_FALSE(r.IsOk());
   EXPECT_TRUE(r.IsErr());
-  EXPECT_EQ(r.Code(), ErrorCode::INVALID_PARAM);
+  EXPECT_EQ(r.Code(), ErrorCode::kInvalidParameter);
   EXPECT_EQ(r.Message(), "param must > 0");
   EXPECT_STREQ(r.CodeString(), "InvalidParam");
 }
 
 TEST_F(ResultErrorTest, ResultErrWithoutMessage) {
-  Result<std::string> r = Result<std::string>::Err(ErrorCode::IO_ERROR);
+  Result<std::string> r = Result<std::string>::Err(ErrorCode::kIOError);
   EXPECT_FALSE(r.IsOk());
-  EXPECT_EQ(r.Code(), ErrorCode::IO_ERROR);
+  EXPECT_EQ(r.Code(), ErrorCode::kIOError);
   EXPECT_EQ(r.Message(), "");
 }
 
@@ -105,7 +105,7 @@ TEST_F(ResultErrorTest, ResultDefaultConstruction) {
   // 默认构造得到 NOT_INITIALIZED 状态
   Result<double> r;
   EXPECT_FALSE(r.IsOk());
-  EXPECT_EQ(r.Code(), ErrorCode::NOT_INITIALIZED);
+  EXPECT_EQ(r.Code(), ErrorCode::kNotInitialized);
 }
 
 // ============================================================================
@@ -119,7 +119,7 @@ TEST_F(ResultErrorTest, ResultValueAccess) {
 }
 
 TEST_F(ResultErrorTest, ResultValueOrDefault) {
-  Result<int> r = Result<int>::Err(ErrorCode::INVALID_PARAM);
+  Result<int> r = Result<int>::Err(ErrorCode::kInvalidParameter);
   EXPECT_EQ(r.ValueOr(99), 99);
 }
 
@@ -176,14 +176,14 @@ TEST_F(ResultErrorTest, VoidResultOk) {
   VoidResult r = VoidResult::Ok();
   EXPECT_TRUE(r.IsOk());
   EXPECT_FALSE(r.IsErr());
-  EXPECT_EQ(r.Code(), ErrorCode::OK);
+  EXPECT_EQ(r.Code(), ErrorCode::kSuccess);
 }
 
 TEST_F(ResultErrorTest, VoidResultErr) {
-  VoidResult r = VoidResult::Err(ErrorCode::DECODER_ERROR, "decode failed");
+  VoidResult r = VoidResult::Err(ErrorCode::kDecoderError, "decode failed");
   EXPECT_FALSE(r.IsOk());
   EXPECT_TRUE(r.IsErr());
-  EXPECT_EQ(r.Code(), ErrorCode::DECODER_ERROR);
+  EXPECT_EQ(r.Code(), ErrorCode::kDecoderError);
   EXPECT_EQ(r.Message(), "decode failed");
 }
 
@@ -211,7 +211,7 @@ TEST_F(ResultErrorTest, ResultMoveConstruction) {
 TEST_F(ResultErrorTest, ResultMoveAssignment) {
   Result<std::vector<int>> r1 = Result<std::vector<int>>::Ok({1, 2, 3});
   Result<std::vector<int>> r2 =
-      Result<std::vector<int>>::Err(ErrorCode::UNKNOWN);
+      Result<std::vector<int>>::Err(ErrorCode::kUnknown);
 
   r2 = std::move(r1);
 
@@ -247,11 +247,11 @@ TEST_F(ResultErrorTest, ResultAndThenSuccess) {
 }
 
 TEST_F(ResultErrorTest, ResultAndThenFailure) {
-  auto r = Result<int>::Err(ErrorCode::INVALID_PARAM, "bad param")
+  auto r = Result<int>::Err(ErrorCode::kInvalidParameter, "bad param")
                .AndThen([](int v) { return Result<int>::Ok(v * 2); });
 
   EXPECT_FALSE(r.IsOk());
-  EXPECT_EQ(r.Code(), ErrorCode::INVALID_PARAM);
+  EXPECT_EQ(r.Code(), ErrorCode::kInvalidParameter);
   EXPECT_EQ(r.Message(), "bad param");
 }
 
@@ -265,18 +265,18 @@ TEST_F(ResultErrorTest, ResultAndThenChain) {
 }
 
 TEST_F(ResultErrorTest, ResultAndThenChainWithError) {
-  auto r =
-      Result<int>::Ok(2)
-          .AndThen([](int v) {
-            if (v < 5) {
-              return Result<int>::Err(ErrorCode::INVALID_PARAM, "too small");
-            }
-            return Result<int>::Ok(v * 2);
-          })
-          .AndThen([](int v) { return Result<int>::Ok(v + 100); });
+  auto r = Result<int>::Ok(2)
+               .AndThen([](int v) {
+                 if (v < 5) {
+                   return Result<int>::Err(ErrorCode::kInvalidParameter,
+                                           "too small");
+                 }
+                 return Result<int>::Ok(v * 2);
+               })
+               .AndThen([](int v) { return Result<int>::Ok(v + 100); });
 
   EXPECT_FALSE(r.IsOk());
-  EXPECT_EQ(r.Code(), ErrorCode::INVALID_PARAM);
+  EXPECT_EQ(r.Code(), ErrorCode::kInvalidParameter);
 }
 
 // ============================================================================
@@ -292,12 +292,12 @@ TEST_F(ResultErrorTest, ResultMapSuccess) {
 
 TEST_F(ResultErrorTest, ResultMapFailure) {
   auto r =
-      Result<int>::Err(ErrorCode::IO_ERROR, "file not found").Map([](int v) {
+      Result<int>::Err(ErrorCode::kIOError, "file not found").Map([](int v) {
         return std::to_string(v);
       });
 
   EXPECT_FALSE(r.IsOk());
-  EXPECT_EQ(r.Code(), ErrorCode::IO_ERROR);
+  EXPECT_EQ(r.Code(), ErrorCode::kIOError);
 }
 
 TEST_F(ResultErrorTest, ResultMapChain) {
@@ -314,9 +314,9 @@ TEST_F(ResultErrorTest, ResultMapChain) {
 // ============================================================================
 
 TEST_F(ResultErrorTest, ResultOrElseRecoveryFromError) {
-  auto r = Result<int>::Err(ErrorCode::INVALID_PARAM, "bad value")
+  auto r = Result<int>::Err(ErrorCode::kInvalidParameter, "bad value")
                .OrElse([](ErrorCode e) {
-                 if (e == ErrorCode::INVALID_PARAM) {
+                 if (e == ErrorCode::kInvalidParameter) {
                    return Result<int>::Ok(0);
                  }
                  return Result<int>::Err(e, "unexpected error");
@@ -340,18 +340,18 @@ TEST_F(ResultErrorTest, ResultOrElseWithoutError) {
 
 TEST_F(ResultErrorTest, ResultMapErrSuccess) {
   auto r = Result<int>::Ok(42).MapErr(
-      [](ErrorCode e) { return ErrorCode::UNKNOWN; });
+      [](ErrorCode e) { return ErrorCode::kUnknown; });
 
   EXPECT_TRUE(r.IsOk());
   EXPECT_EQ(r.Value(), 42);
 }
 
 TEST_F(ResultErrorTest, ResultMapErrWithError) {
-  auto r = Result<int>::Err(ErrorCode::INVALID_PARAM, "original error")
-               .MapErr([](ErrorCode e) { return ErrorCode::UNKNOWN; });
+  auto r = Result<int>::Err(ErrorCode::kInvalidParameter, "original error")
+               .MapErr([](ErrorCode e) { return ErrorCode::kUnknown; });
 
   EXPECT_FALSE(r.IsOk());
-  EXPECT_EQ(r.Code(), ErrorCode::UNKNOWN);
+  EXPECT_EQ(r.Code(), ErrorCode::kUnknown);
   EXPECT_EQ(r.Message(), "original error");  // 消息保留
 }
 
@@ -361,21 +361,21 @@ TEST_F(ResultErrorTest, ResultMapErrWithError) {
 
 TEST_F(ResultErrorTest, ResultFullMessage) {
   Result<int> r1 =
-      Result<int>::Err(ErrorCode::DECODER_ERROR, "ffmpeg init failed");
+      Result<int>::Err(ErrorCode::kDecoderError, "ffmpeg init failed");
   EXPECT_EQ(r1.FullMessage(), "DecoderError: ffmpeg init failed");
 
-  Result<int> r2 = Result<int>::Err(ErrorCode::IO_ERROR);
+  Result<int> r2 = Result<int>::Err(ErrorCode::kIOError);
   EXPECT_EQ(r2.FullMessage(), "IOError");
 }
 
 TEST_F(ResultErrorTest, ResultCodeString) {
-  Result<int> r = Result<int>::Err(ErrorCode::AUDIO_DEVICE_NOT_FOUND);
+  Result<int> r = Result<int>::Err(ErrorCode::kAudioDeviceNotFound);
   EXPECT_STREQ(r.CodeString(), "AudioDeviceNotFound");
 }
 
 TEST_F(ResultErrorTest, ResultOutputStreamOperator) {
   Result<int> r =
-      Result<int>::Err(ErrorCode::NETWORK_ERROR, "connection failed");
+      Result<int>::Err(ErrorCode::kNetworkError, "connection failed");
 
   std::ostringstream oss;
   oss << r;
@@ -399,7 +399,7 @@ TEST_F(ResultErrorTest, VoidResultAndThenSuccess) {
 
 TEST_F(ResultErrorTest, VoidResultAndThenWithError) {
   int counter = 0;
-  auto r = VoidResult::Err(ErrorCode::IO_ERROR).AndThen([&counter]() {
+  auto r = VoidResult::Err(ErrorCode::kIOError).AndThen([&counter]() {
     counter++;
     return VoidResult::Ok();
   });
@@ -410,7 +410,7 @@ TEST_F(ResultErrorTest, VoidResultAndThenWithError) {
 
 TEST_F(ResultErrorTest, VoidResultOrElseRecovery) {
   int recovery_called = 0;
-  auto r = VoidResult::Err(ErrorCode::IO_ERROR)
+  auto r = VoidResult::Err(ErrorCode::kIOError)
                .OrElse([&recovery_called](ErrorCode e) { recovery_called++; });
 
   EXPECT_TRUE(r.IsOk());
@@ -426,7 +426,7 @@ class MockDecoderFactory {
  public:
   Result<std::string> CreateDecoder(const std::string& codec_name) {
     if (codec_name.empty()) {
-      return Result<std::string>::Err(ErrorCode::INVALID_PARAM,
+      return Result<std::string>::Err(ErrorCode::kInvalidParameter,
                                       "codec name is empty");
     }
     if (codec_name == "h264") {
@@ -435,7 +435,7 @@ class MockDecoderFactory {
     if (codec_name == "aac") {
       return Result<std::string>::Ok("AACDecoder");
     }
-    return Result<std::string>::Err(ErrorCode::UNSUPPORTED_CODEC,
+    return Result<std::string>::Err(ErrorCode::kUnsupportedCodec,
                                     "codec not supported: " + codec_name);
   }
 };
@@ -453,7 +453,7 @@ TEST_F(ResultErrorTest, ScenarioDecoderFactoryUnsupportedCodec) {
   auto result = factory.CreateDecoder("vp9");
 
   EXPECT_FALSE(result.IsOk());
-  EXPECT_EQ(result.Code(), ErrorCode::UNSUPPORTED_CODEC);
+  EXPECT_EQ(result.Code(), ErrorCode::kUnsupportedCodec);
   EXPECT_EQ(result.Message(), "codec not supported: vp9");
 }
 
@@ -462,7 +462,7 @@ TEST_F(ResultErrorTest, ScenarioDecoderFactoryInvalidParam) {
   auto result = factory.CreateDecoder("");
 
   EXPECT_FALSE(result.IsOk());
-  EXPECT_EQ(result.Code(), ErrorCode::INVALID_PARAM);
+  EXPECT_EQ(result.Code(), ErrorCode::kInvalidParameter);
 }
 
 // 模拟音频设备初始化
@@ -470,11 +470,11 @@ class MockAudioDevice {
  public:
   Result<void> Initialize(int sample_rate) {
     if (sample_rate <= 0) {
-      return Result<void>::Err(ErrorCode::INVALID_PARAM,
+      return Result<void>::Err(ErrorCode::kInvalidParameter,
                                "sample rate must > 0");
     }
     if (sample_rate > 192000) {
-      return Result<void>::Err(ErrorCode::AUDIO_FORMAT_NOT_SUPPORTED,
+      return Result<void>::Err(ErrorCode::kAudioFormatNotSupported,
                                "sample rate too high");
     }
     sample_rate_ = sample_rate;
@@ -500,7 +500,7 @@ TEST_F(ResultErrorTest, ScenarioAudioDeviceInitFailure) {
   auto result = device.Initialize(-1);
 
   EXPECT_FALSE(result.IsOk());
-  EXPECT_EQ(result.Code(), ErrorCode::INVALID_PARAM);
+  EXPECT_EQ(result.Code(), ErrorCode::kInvalidParameter);
 }
 
 TEST_F(ResultErrorTest, ScenarioAudioDeviceInitHighSampleRate) {
@@ -508,7 +508,7 @@ TEST_F(ResultErrorTest, ScenarioAudioDeviceInitHighSampleRate) {
   auto result = device.Initialize(256000);
 
   EXPECT_FALSE(result.IsOk());
-  EXPECT_EQ(result.Code(), ErrorCode::AUDIO_FORMAT_NOT_SUPPORTED);
+  EXPECT_EQ(result.Code(), ErrorCode::kAudioFormatNotSupported);
 }
 
 // 模拟文件打开操作链
@@ -516,11 +516,11 @@ class MockFileReader {
  public:
   Result<std::string> Open(const std::string& filename) {
     if (filename.empty()) {
-      return Result<std::string>::Err(ErrorCode::INVALID_PARAM,
+      return Result<std::string>::Err(ErrorCode::kInvalidParameter,
                                       "filename is empty");
     }
     if (filename == "missing.mp4") {
-      return Result<std::string>::Err(ErrorCode::IO_ERROR, "file not found");
+      return Result<std::string>::Err(ErrorCode::kIOError, "file not found");
     }
     return Result<std::string>::Ok(filename);
   }
@@ -529,7 +529,7 @@ class MockFileReader {
     if (filename == "test.mp4") {
       return Result<int>::Ok(1024000);
     }
-    return Result<int>::Err(ErrorCode::IO_ERROR, "cannot get file size");
+    return Result<int>::Err(ErrorCode::kIOError, "cannot get file size");
   }
 };
 
@@ -556,7 +556,7 @@ TEST_F(ResultErrorTest, ScenarioFileNotFound) {
                     });
 
   EXPECT_FALSE(result.IsOk());
-  EXPECT_EQ(result.Code(), ErrorCode::IO_ERROR);
+  EXPECT_EQ(result.Code(), ErrorCode::kIOError);
 }
 
 // ============================================================================
@@ -631,7 +631,7 @@ TEST_F(ResultErrorTest, ResultWithVariant) {
 // ============================================================================
 
 TEST_F(ResultErrorTest, EmptyMessageError) {
-  Result<int> r = Result<int>::Err(ErrorCode::IO_ERROR, "");
+  Result<int> r = Result<int>::Err(ErrorCode::kIOError, "");
 
   EXPECT_FALSE(r.IsOk());
   EXPECT_EQ(r.Message(), "");
@@ -640,7 +640,7 @@ TEST_F(ResultErrorTest, EmptyMessageError) {
 
 TEST_F(ResultErrorTest, VeryLongErrorMessage) {
   std::string long_msg(10000, 'x');
-  Result<int> r = Result<int>::Err(ErrorCode::UNKNOWN, long_msg);
+  Result<int> r = Result<int>::Err(ErrorCode::kUnknown, long_msg);
 
   EXPECT_FALSE(r.IsOk());
   EXPECT_EQ(r.Message().size(), 10000);

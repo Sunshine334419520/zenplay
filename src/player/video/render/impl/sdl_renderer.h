@@ -3,6 +3,7 @@
 #include <memory>
 #include <string>
 
+#include "player/common/error.h"
 #include "player/video/render/renderer.h"
 
 extern "C" {
@@ -20,7 +21,7 @@ class SDLRenderer : public Renderer {
   ~SDLRenderer() override;
 
   // Renderer interface implementation
-  bool Init(void* window_handle, int width, int height) override;
+  Result<void> Init(void* window_handle, int width, int height) override;
   bool RenderFrame(AVFrame* frame) override;
   void Clear() override;
   void Present() override;

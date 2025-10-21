@@ -1,6 +1,7 @@
 #include "player/demuxer/demuxer.h"
 
 #include "demuxer.h"
+#include "player/common/ffmpeg_error_utils.h"
 #include "player/common/log_manager.h"
 
 namespace zenplay {
@@ -15,7 +16,7 @@ Demuxer::~Demuxer() {
   Close();
 }
 
-bool Demuxer::Open(const std::string& url) {
+Result<void> Demuxer::Open(const std::string& url) {
   if (format_context_) {
     Close();
   }
@@ -31,19 +32,22 @@ bool Demuxer::Open(const std::string& url) {
   int ret =
       avformat_open_input(&format_context_, url.c_str(), nullptr, &options);
   if (ret < 0) {
+    av_dict_free(&options);
     avformat_free_context(format_context_);
     format_context_ = nullptr;
-    return false;
+    return FFmpegErrorToResult(ret, "Open input: " + url);
   }
+
+  av_dict_free(&options);
 
   ret = avformat_find_stream_info(format_context_, nullptr);
   if (ret < 0) {
     Close();
-    return false;
+    return FFmpegErrorToResult(ret, "Find stream info: " + url);
   }
 
   probeStreams();
-  return true;
+  return Result<void>::Ok();
 }
 
 void Demuxer::Close() {
@@ -57,32 +61,34 @@ void Demuxer::Close() {
   }
 }
 
-bool Demuxer::ReadPacket(AVPacket** packetRet) {
+Result<AVPacket*> Demuxer::ReadPacket() {
   AVPacket* packet = av_packet_alloc();
   if (!packet) {
-    return false;  // Failed to allocate packet
+    return Result<AVPacket*>::Err(ErrorCode::kOutOfMemory,
+                                  "Failed to allocate AVPacket");
   }
 
   int ret = av_read_frame(format_context_, packet);
 
   if (ret == AVERROR_EOF) {
     av_packet_free(&packet);
-    *packetRet = nullptr;  // End of file, no more packets to read
-    return true;
+    // EOF 不是错误，返回 nullptr 表示结束
+    return Result<AVPacket*>::Ok(nullptr);
   } else if (ret < 0) {
     av_packet_free(&packet);
-    return false;  // Error reading packet
+    return Result<AVPacket*>::Err(MapFFmpegError(ret),
+                                  FormatFFmpegError(ret, "Read packet"));
   }
 
+  // 跳过非活动流的数据包
   if (packet->stream_index != active_audio_stream_index_ &&
       packet->stream_index != active_video_stream_index_) {
     av_packet_unref(packet);
-    return ReadPacket(packetRet);  // Read next packet if this one is not from
-                                   // an active stream
+    av_packet_free(&packet);
+    return ReadPacket();  // 递归读取下一个数据包
   }
 
-  *packetRet = packet;  // Return the packet
-  return true;
+  return Result<AVPacket*>::Ok(packet);
 }
 
 bool Demuxer::Seek(int64_t timestamp, bool backward) {

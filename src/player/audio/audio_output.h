@@ -4,6 +4,8 @@
 #include <functional>
 #include <memory>
 
+#include "player/common/error.h"
+
 extern "C" {
 #include <libavformat/avformat.h>
 #include <libavutil/frame.h>
@@ -56,17 +58,17 @@ class AudioOutput {
    * @param spec 音频参数配置
    * @param callback 音频数据回调函数
    * @param user_data 传递给回调的用户数据
-   * @return 成功返回true
+   * @return Result<void> 成功返回Ok，失败返回错误码和消息
    */
-  virtual bool Init(const AudioSpec& spec,
-                    AudioOutputCallback callback,
-                    void* user_data) = 0;
+  virtual Result<void> Init(const AudioSpec& spec,
+                            AudioOutputCallback callback,
+                            void* user_data) = 0;
 
   /**
    * @brief 开始音频播放
-   * @return 成功返回true
+   * @return Result<void> 成功返回Ok，失败返回错误码和消息
    */
-  virtual bool Start() = 0;
+  virtual Result<void> Start() = 0;
 
   /**
    * @brief 停止音频播放

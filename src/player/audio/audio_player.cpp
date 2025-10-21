@@ -25,7 +25,7 @@ AudioPlayer::~AudioPlayer() {
   Cleanup();
 }
 
-bool AudioPlayer::Init(const AudioConfig& config) {
+Result<void> AudioPlayer::Init(const AudioConfig& config) {
   config_ = config;
   target_sample_rate_ = config.target_sample_rate;  // 保存目标采样率用于PTS计算
 
@@ -39,8 +39,8 @@ bool AudioPlayer::Init(const AudioConfig& config) {
   // 创建音频输出设备
   audio_output_ = AudioOutput::Create();
   if (!audio_output_) {
-    MODULE_ERROR(LOG_MODULE_AUDIO, "Failed to create audio output device");
-    return false;
+    return Result<void>::Err(ErrorCode::kAudioError,
+                             "Failed to create audio output device");
   }
 
   // 初始化音频输出设备
@@ -48,9 +48,9 @@ bool AudioPlayer::Init(const AudioConfig& config) {
   MODULE_INFO(LOG_MODULE_AUDIO, "Setting up audio callback, this={}",
               (void*)this);
 
-  if (!audio_output_->Init(output_spec_, callback, this)) {
-    MODULE_ERROR(LOG_MODULE_AUDIO, "Failed to initialize audio output device");
-    return false;
+  auto init_result = audio_output_->Init(output_spec_, callback, this);
+  if (!init_result.IsOk()) {
+    return init_result;  // 直接传播错误
   }
 
   // 预分配内部缓冲区
@@ -62,22 +62,22 @@ bool AudioPlayer::Init(const AudioConfig& config) {
               config_.target_sample_rate, config_.target_channels,
               config_.target_bits_per_sample);
 
-  return true;
+  return Result<void>::Ok();
 }
 
-bool AudioPlayer::Start() {
+Result<void> AudioPlayer::Start() {
   MODULE_INFO(LOG_MODULE_AUDIO, "AudioPlayer Start called");
 
   // ✅ 重置队列（清除stopped标志，允许Push/Pop）
   frame_queue_.Reset();
 
-  if (!audio_output_->Start()) {
-    MODULE_ERROR(LOG_MODULE_AUDIO, "Failed to start audio output");
-    return false;
+  auto start_result = audio_output_->Start();
+  if (!start_result.IsOk()) {
+    return start_result;  // 直接传播错误
   }
 
   MODULE_INFO(LOG_MODULE_AUDIO, "Audio playback started");
-  return true;
+  return Result<void>::Ok();
 }
 
 void AudioPlayer::Stop() {

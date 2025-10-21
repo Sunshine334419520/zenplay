@@ -23,68 +23,57 @@ namespace zenplay {
  */
 enum class ErrorCode : int {
   // 通用错误（0-99）
-  kSuccess = 0,           ///< 成功
-  kInvalidParameter = 1,  ///< 无效参数
-  kNotInitialized = 2,    ///< 未初始化
-  kAlreadyRunning = 3,    ///< 已在运行中
-  kUnknown = 99,          ///< 未知错误
+  OK = 0,               ///< 成功
+  INVALID_PARAM = 1,    ///< 无效参数
+  NOT_INITIALIZED = 2,  ///< 未初始化
+  ALREADY_RUNNING = 3,  ///< 已在运行中
+  UNKNOWN = 99,         ///< 未知错误
 
   // 解封装/IO 错误（100-199）
-  kIOError = 100,           ///< IO 错误（通用）
-  kInvalidFormat = 101,     ///< 无效的文件格式
-  kStreamNotFound = 102,    ///< 指定流未找到
-  kDemuxError = 103,        ///< 解封装错误
-  kFileNotFound = 104,      ///< 文件不存在
-  kFileAccessDenied = 105,  ///< 文件访问被拒绝
-  kEndOfFile = 106,         ///< 文件结束
-  kDemuxerNotFound = 107,   ///< 解封装器未找到
+  IO_ERROR = 100,             ///< IO 错误（文件不存在、权限等）
+  INVALID_FILE_FORMAT = 101,  ///< 无效的文件格式
+  STREAM_NOT_FOUND = 102,     ///< 指定流未找到
+  DEMUX_ERROR = 103,          ///< 解封装错误
 
   // 解码错误（200-299）
-  kDecoderError = 200,               ///< 解码器错误
-  kDecoderNotFound = 201,            ///< 未找到合适的解码器
-  kUnsupportedCodec = 202,           ///< 不支持的编码格式
-  kDecoderInitFailed = 203,          ///< 解码器初始化失败
-  kDecoderSendFrameFailed = 204,     ///< 发送数据包到解码器失败
-  kDecoderReceiveFrameFailed = 205,  ///< 从解码器接收帧失败
-  kEncoderNotFound = 206,            ///< 编码器未找到
+  DECODER_ERROR = 200,                 ///< 解码器错误
+  DECODER_NOT_FOUND = 201,             ///< 未找到合适的解码器
+  UNSUPPORTED_CODEC = 202,             ///< 不支持的编码格式
+  DECODER_INIT_FAILED = 203,           ///< 解码器初始化失败
+  DECODER_SEND_FRAME_FAILED = 204,     ///< 发送数据包到解码器失败
+  DECODER_RECEIVE_FRAME_FAILED = 205,  ///< 从解码器接收帧失败
 
   // 渲染错误（300-399）
-  kRenderError = 300,          ///< 渲染错误
-  kInvalidRenderTarget = 301,  ///< 无效的渲染目标
-  kRenderContextLost = 302,    ///< 渲染上下文丢失
-  kTextureCreateFailed = 303,  ///< 纹理创建失败
-  kRenderViewportError = 304,  ///< 视口设置错误
+  RENDER_ERROR = 300,           ///< 渲染错误
+  INVALID_RENDER_TARGET = 301,  ///< 无效的渲染目标
+  RENDER_CONTEXT_LOST = 302,    ///< 渲染上下文丢失
+  TEXTURE_CREATE_FAILED = 303,  ///< 纹理创建失败
+  RENDER_VIEWPORT_ERROR = 304,  ///< 视口设置错误
 
   // 音频错误（400-499）
-  kAudioError = 400,               ///< 音频错误
-  kAudioOutputError = 401,         ///< 音频输出错误
-  kAudioFormatNotSupported = 402,  ///< 不支持的音频格式
-  kAudioResampleError = 403,       ///< 重采样错误
-  kAudioDeviceNotFound = 404,      ///< 音频设备未找到
-  kAudioInitFailed = 405,          ///< 音频设备初始化失败
-  kAudioNotInitialized = 406,      ///< 音频未初始化
-  kAudioAlreadyInitialized = 407,  ///< 音频已初始化
+  AUDIO_ERROR = 400,                 ///< 音频错误
+  AUDIO_OUTPUT_ERROR = 401,          ///< 音频输出错误
+  AUDIO_FORMAT_NOT_SUPPORTED = 402,  ///< 不支持的音频格式
+  AUDIO_RESAMPLE_ERROR = 403,        ///< 重采样错误
+  AUDIO_DEVICE_NOT_FOUND = 404,      ///< 音频设备未找到
+  AUDIO_DEVICE_INIT_FAILED = 405,    ///< 音频设备初始化失败
 
   // 网络错误（500-599）
-  kNetworkError = 500,        ///< 网络错误
-  kConnectionTimeout = 501,   ///< 连接超时
-  kConnectionRefused = 502,   ///< 连接被拒绝
-  kInvalidUrl = 503,          ///< 无效的 URL
-  kNetworkUnreachable = 504,  ///< 网络不可达
-  kNetworkTimeout = 505,      ///< 网络超时
+  NETWORK_ERROR = 500,        ///< 网络错误
+  CONNECTION_TIMEOUT = 501,   ///< 连接超时
+  CONNECTION_REFUSED = 502,   ///< 连接被拒绝
+  INVALID_URL = 503,          ///< 无效的 URL
+  NETWORK_UNREACHABLE = 504,  ///< 网络不可达
 
   // 同步相关错误（600-699）
-  kSyncError = 600,   ///< 同步错误
-  kClockError = 601,  ///< 时钟错误
+  SYNC_ERROR = 600,   ///< 同步错误
+  CLOCK_ERROR = 601,  ///< 时钟错误
 
   // 系统错误（700-799）
-  kSystemError = 700,     ///< 系统错误
-  kOutOfMemory = 701,     ///< 内存不足
-  kThreadError = 702,     ///< 线程错误
-  kTimeout = 703,         ///< 操作超时
-  kInternalError = 704,   ///< 内部错误
-  kBufferTooSmall = 705,  ///< 缓冲区太小
-  kNotSupported = 706,    ///< 不支持的操作
+  SYSTEM_ERROR = 700,   ///< 系统错误
+  OUT_OF_MEMORY = 701,  ///< 内存不足
+  THREAD_ERROR = 702,   ///< 线程错误
+  TIMEOUT = 703,        ///< 操作超时
 };
 
 /**
@@ -93,116 +82,94 @@ enum class ErrorCode : int {
 inline const char* ErrorCodeToString(ErrorCode code) {
   switch (code) {
     // 通用
-    case ErrorCode::kSuccess:
-      return "Success";
-    case ErrorCode::kInvalidParameter:
-      return "InvalidParameter";
-    case ErrorCode::kNotInitialized:
+    case ErrorCode::OK:
+      return "OK";
+    case ErrorCode::INVALID_PARAM:
+      return "InvalidParam";
+    case ErrorCode::NOT_INITIALIZED:
       return "NotInitialized";
-    case ErrorCode::kAlreadyRunning:
+    case ErrorCode::ALREADY_RUNNING:
       return "AlreadyRunning";
-    case ErrorCode::kUnknown:
+    case ErrorCode::UNKNOWN:
       return "Unknown";
 
     // 解封装/IO
-    case ErrorCode::kIOError:
+    case ErrorCode::IO_ERROR:
       return "IOError";
-    case ErrorCode::kInvalidFormat:
-      return "InvalidFormat";
-    case ErrorCode::kStreamNotFound:
+    case ErrorCode::INVALID_FILE_FORMAT:
+      return "InvalidFileFormat";
+    case ErrorCode::STREAM_NOT_FOUND:
       return "StreamNotFound";
-    case ErrorCode::kDemuxError:
+    case ErrorCode::DEMUX_ERROR:
       return "DemuxError";
-    case ErrorCode::kFileNotFound:
-      return "FileNotFound";
-    case ErrorCode::kFileAccessDenied:
-      return "FileAccessDenied";
-    case ErrorCode::kEndOfFile:
-      return "EndOfFile";
-    case ErrorCode::kDemuxerNotFound:
-      return "DemuxerNotFound";
 
     // 解码
-    case ErrorCode::kDecoderError:
+    case ErrorCode::DECODER_ERROR:
       return "DecoderError";
-    case ErrorCode::kDecoderNotFound:
+    case ErrorCode::DECODER_NOT_FOUND:
       return "DecoderNotFound";
-    case ErrorCode::kUnsupportedCodec:
+    case ErrorCode::UNSUPPORTED_CODEC:
       return "UnsupportedCodec";
-    case ErrorCode::kDecoderInitFailed:
+    case ErrorCode::DECODER_INIT_FAILED:
       return "DecoderInitFailed";
-    case ErrorCode::kDecoderSendFrameFailed:
+    case ErrorCode::DECODER_SEND_FRAME_FAILED:
       return "DecoderSendFrameFailed";
-    case ErrorCode::kDecoderReceiveFrameFailed:
+    case ErrorCode::DECODER_RECEIVE_FRAME_FAILED:
       return "DecoderReceiveFrameFailed";
-    case ErrorCode::kEncoderNotFound:
-      return "EncoderNotFound";
 
     // 渲染
-    case ErrorCode::kRenderError:
+    case ErrorCode::RENDER_ERROR:
       return "RenderError";
-    case ErrorCode::kInvalidRenderTarget:
+    case ErrorCode::INVALID_RENDER_TARGET:
       return "InvalidRenderTarget";
-    case ErrorCode::kRenderContextLost:
+    case ErrorCode::RENDER_CONTEXT_LOST:
       return "RenderContextLost";
-    case ErrorCode::kTextureCreateFailed:
+    case ErrorCode::TEXTURE_CREATE_FAILED:
       return "TextureCreateFailed";
-    case ErrorCode::kRenderViewportError:
+    case ErrorCode::RENDER_VIEWPORT_ERROR:
       return "RenderViewportError";
 
     // 音频
-    case ErrorCode::kAudioError:
+    case ErrorCode::AUDIO_ERROR:
       return "AudioError";
-    case ErrorCode::kAudioOutputError:
+    case ErrorCode::AUDIO_OUTPUT_ERROR:
       return "AudioOutputError";
-    case ErrorCode::kAudioFormatNotSupported:
+    case ErrorCode::AUDIO_FORMAT_NOT_SUPPORTED:
       return "AudioFormatNotSupported";
-    case ErrorCode::kAudioResampleError:
+    case ErrorCode::AUDIO_RESAMPLE_ERROR:
       return "AudioResampleError";
-    case ErrorCode::kAudioDeviceNotFound:
+    case ErrorCode::AUDIO_DEVICE_NOT_FOUND:
       return "AudioDeviceNotFound";
-    case ErrorCode::kAudioInitFailed:
-      return "AudioInitFailed";
-    case ErrorCode::kAudioNotInitialized:
-      return "AudioNotInitialized";
-    case ErrorCode::kAudioAlreadyInitialized:
-      return "AudioAlreadyInitialized";
+    case ErrorCode::AUDIO_DEVICE_INIT_FAILED:
+      return "AudioDeviceInitFailed";
 
     // 网络
-    case ErrorCode::kNetworkError:
+    case ErrorCode::NETWORK_ERROR:
       return "NetworkError";
-    case ErrorCode::kConnectionTimeout:
+    case ErrorCode::CONNECTION_TIMEOUT:
       return "ConnectionTimeout";
-    case ErrorCode::kConnectionRefused:
+    case ErrorCode::CONNECTION_REFUSED:
       return "ConnectionRefused";
-    case ErrorCode::kInvalidUrl:
-      return "InvalidUrl";
-    case ErrorCode::kNetworkUnreachable:
+    case ErrorCode::INVALID_URL:
+      return "InvalidURL";
+    case ErrorCode::NETWORK_UNREACHABLE:
       return "NetworkUnreachable";
-    case ErrorCode::kNetworkTimeout:
-      return "NetworkTimeout";
 
     // 同步
-    case ErrorCode::kSyncError:
+    case ErrorCode::SYNC_ERROR:
       return "SyncError";
-    case ErrorCode::kClockError:
+    case ErrorCode::CLOCK_ERROR:
       return "ClockError";
 
     // 系统
-    case ErrorCode::kSystemError:
+    case ErrorCode::SYSTEM_ERROR:
       return "SystemError";
-    case ErrorCode::kOutOfMemory:
+    case ErrorCode::OUT_OF_MEMORY:
       return "OutOfMemory";
-    case ErrorCode::kThreadError:
+    case ErrorCode::THREAD_ERROR:
       return "ThreadError";
-    case ErrorCode::kTimeout:
+    case ErrorCode::TIMEOUT:
       return "Timeout";
-    case ErrorCode::kInternalError:
-      return "InternalError";
-    case ErrorCode::kBufferTooSmall:
-      return "BufferTooSmall";
-    case ErrorCode::kNotSupported:
-      return "NotSupported";
 
     default:
       return "UnknownErrorCode";
@@ -218,8 +185,8 @@ inline const char* ErrorCodeToString(ErrorCode code) {
  *   if (r.IsOk()) { std::cout << r.Value(); }
  *
  *   // 返回错误
- *   Result<int> err = Result<int>::Err(ErrorCode::kInvalidParameter, "param
- * must > 0"); if (!err.IsOk()) { std::cout << "Error: " << err.Message();
+ *   Result<int> err = Result<int>::Err(ErrorCode::INVALID_PARAM, "param must >
+ * 0"); if (!err.IsOk()) { std::cout << "Error: " << err.Message();
  *   }
  *
  * 设计要点：
@@ -237,7 +204,7 @@ class Result {
    * @brief 构造成功结果
    */
   static Result Ok(T value) {
-    return Result(std::move(value), ErrorCode::kSuccess, std::string());
+    return Result(std::move(value), ErrorCode::OK, std::string());
   }
 
   /**
@@ -251,7 +218,7 @@ class Result {
    * @brief 默认构造函数（创建未初始化的结果）
    * 通常不建议使用，仅为兼容性提供
    */
-  Result() : error_code_(ErrorCode::kNotInitialized), message_() {}
+  Result() : error_code_(ErrorCode::NOT_INITIALIZED), message_() {}
 
   /**
    * @brief 移动构造函数
@@ -286,12 +253,12 @@ class Result {
   /**
    * @brief 检查结果是否成功
    */
-  bool IsOk() const { return error_code_ == ErrorCode::kSuccess; }
+  bool IsOk() const { return error_code_ == ErrorCode::OK; }
 
   /**
    * @brief 检查结果是否失败
    */
-  bool IsErr() const { return error_code_ != ErrorCode::kSuccess; }
+  bool IsErr() const { return error_code_ != ErrorCode::OK; }
 
   /**
    * @brief 获取错误码
@@ -400,7 +367,7 @@ class Result {
    *
    * 示例：
    *   Result<int> r = SomeOperation()
-   *     .MapErr([](ErrorCode e) { return ErrorCode::kUnknown; });
+   *     .MapErr([](ErrorCode e) { return ErrorCode::UNKNOWN; });
    */
   template <typename F>
   Result<T> MapErr(F&& f) {
@@ -455,8 +422,7 @@ class Result {
  * 使用示例：
  *   Result<void> Init() {
  *     if (!ValidateConfig()) {
- *       return Result<void>::Err(ErrorCode::kInvalidParameter, "config
- * invalid");
+ *       return Result<void>::Err(ErrorCode::INVALID_PARAM, "config invalid");
  *     }
  *     return Result<void>::Ok();
  *   }
@@ -468,7 +434,7 @@ class Result<void> {
    * @brief 构造成功结果
    */
   static Result<void> Ok() {
-    return Result<void>(ErrorCode::kSuccess, std::string());
+    return Result<void>(ErrorCode::OK, std::string());
   }
 
   /**
@@ -481,7 +447,7 @@ class Result<void> {
   /**
    * @brief 默认构造函数
    */
-  Result<void>() : error_code_(ErrorCode::kNotInitialized), message_() {}
+  Result<void>() : error_code_(ErrorCode::NOT_INITIALIZED), message_() {}
 
   /**
    * @brief 移动构造函数
@@ -507,9 +473,9 @@ class Result<void> {
 
   // ============ 查询方法 ============
 
-  bool IsOk() const { return error_code_ == ErrorCode::kSuccess; }
+  bool IsOk() const { return error_code_ == ErrorCode::OK; }
 
-  bool IsErr() const { return error_code_ != ErrorCode::kSuccess; }
+  bool IsErr() const { return error_code_ != ErrorCode::OK; }
 
   ErrorCode Code() const { return error_code_; }
 

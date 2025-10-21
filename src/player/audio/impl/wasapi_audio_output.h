@@ -31,10 +31,10 @@ class WasapiAudioOutput : public AudioOutput {
   ~WasapiAudioOutput() override;
 
   // AudioOutput接口实现
-  bool Init(const AudioSpec& spec,
-            AudioOutputCallback callback,
-            void* user_data) override;
-  bool Start() override;
+  Result<void> Init(const AudioSpec& spec,
+                    AudioOutputCallback callback,
+                    void* user_data) override;
+  Result<void> Start() override;
   void Stop() override;
   void Pause() override;
   void Resume() override;

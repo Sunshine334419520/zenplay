@@ -6,9 +6,15 @@ namespace zenplay {
 
 class AudioDecoder : public Decoder {
  public:
-  bool Open(AVCodecParameters* codec_params, AVDictionary** options = nullptr) {
-    if (!codec_params || codec_params->codec_type != AVMEDIA_TYPE_AUDIO) {
-      return false;  // Ensure codec parameters are valid and for audio
+  Result<void> Open(AVCodecParameters* codec_params,
+                    AVDictionary** options = nullptr) {
+    if (!codec_params) {
+      return Result<void>::Err(ErrorCode::kInvalidParameter,
+                               "codec_params is null");
+    }
+    if (codec_params->codec_type != AVMEDIA_TYPE_AUDIO) {
+      return Result<void>::Err(ErrorCode::kInvalidParameter,
+                               "codec_params is not for audio");
     }
     return Decoder::Open(codec_params, options);
   }

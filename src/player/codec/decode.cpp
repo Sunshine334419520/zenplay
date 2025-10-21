@@ -1,5 +1,6 @@
 #include "player/codec/decode.h"
 
+#include "player/common/ffmpeg_error_utils.h"
 #include "player/common/log_manager.h"
 
 namespace zenplay {
@@ -8,42 +9,58 @@ Decoder::Decoder() {}
 
 Decoder::~Decoder() {}
 
-bool Decoder::Open(AVCodecParameters* codec_params, AVDictionary** options) {
+Result<void> Decoder::Open(AVCodecParameters* codec_params,
+                           AVDictionary** options) {
   if (opened_) {
-    return false;
+    return Result<void>::Err(ErrorCode::kAlreadyRunning,
+                             "Decoder is already opened");
+  }
+
+  if (!codec_params) {
+    return Result<void>::Err(ErrorCode::kInvalidParameter,
+                             "codec_params is null");
   }
 
   const AVCodec* codec = avcodec_find_decoder(codec_params->codec_id);
   if (!codec) {
     MODULE_ERROR(LOG_MODULE_DECODER, "Codec not found");
-    return false;  // Codec not found
+    return Result<void>::Err(ErrorCode::kDecoderNotFound,
+                             "Codec not found for codec_id: " +
+                                 std::to_string(codec_params->codec_id));
   }
 
   AVCodecContext* raw = avcodec_alloc_context3(codec);
   if (!raw) {
     MODULE_ERROR(LOG_MODULE_DECODER, "Failed to allocate codec context");
-    return false;  // Failed to allocate codec context
+    return Result<void>::Err(ErrorCode::kOutOfMemory,
+                             "Failed to allocate codec context");
   }
   codec_context_.reset(raw);
 
   int ret = avcodec_parameters_to_context(codec_context_.get(), codec_params);
   if (ret < 0) {
     MODULE_ERROR(LOG_MODULE_DECODER, "Failed to copy codec parameters");
-    codec_context_.reset();  // Reset the context on failure
-    return false;            // Failed to copy codec parameters
+    codec_context_.reset();
+    return FFmpegErrorToResult(ret, "Copy codec parameters");
   }
 
   ret = avcodec_open2(codec_context_.get(), codec, options);
   if (ret < 0) {
     MODULE_ERROR(LOG_MODULE_DECODER, "Failed to open codec");
-    codec_context_.reset();  // Reset the context on failure
-    return false;            // Failed to open codec
+    codec_context_.reset();
+    return FFmpegErrorToResult(ret, "Open codec");
   }
 
   workFrame_.reset(av_frame_alloc());
+  if (!workFrame_) {
+    codec_context_.reset();
+    return Result<void>::Err(ErrorCode::kOutOfMemory,
+                             "Failed to allocate AVFrame");
+  }
+
   opened_ = true;
   codec_type_ = codec_params->codec_type;
-  return true;  // Successfully opened
+  return Result<void>::Ok();
 }
 
 void Decoder::Close() {
@@ -87,6 +104,36 @@ bool zenplay::Decoder::Decode(AVPacket* packet,
   }
 
   return true;
+}
+
+Result<AVFrame*> zenplay::Decoder::ReceiveFrame() {
+  if (!opened_) {
+    return Result<AVFrame*>::Err(ErrorCode::kNotInitialized,
+                                 "Decoder not opened");
+  }
+
+  int ret = avcodec_receive_frame(codec_context_.get(), workFrame_.get());
+
+  if (ret == AVERROR(EAGAIN)) {
+    // Need more data, not an error
+    return Result<AVFrame*>::Ok(nullptr);
+  } else if (ret == AVERROR_EOF) {
+    // EOF reached
+    return Result<AVFrame*>::Ok(nullptr);
+  } else if (ret < 0) {
+    return Result<AVFrame*>::Err(MapFFmpegError(ret),
+                                 FormatFFmpegError(ret, "Receive frame"));
+  }
+
+  // Clone the frame to ensure it's not modified by subsequent calls
+  AVFrame* clone = av_frame_clone(workFrame_.get());
+  if (!clone) {
+    av_frame_unref(workFrame_.get());
+    return Result<AVFrame*>::Err(ErrorCode::kOutOfMemory,
+                                 "Failed to clone AVFrame");
+  }
+
+  return Result<AVFrame*>::Ok(clone);
 }
 
 bool zenplay::Decoder::Flush(std::vector<AVFramePtr>* frames) {

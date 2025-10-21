@@ -5,6 +5,8 @@
 #include <algorithm>
 #include <iostream>
 
+#include "player/common/log_manager.h"
+
 namespace zenplay {
 
 AlsaAudioOutput::AlsaAudioOutput()
@@ -28,34 +30,52 @@ AlsaAudioOutput::~AlsaAudioOutput() {
   Cleanup();
 }
 
-bool AlsaAudioOutput::Init(const AudioSpec& spec,
-                           AudioOutputCallback callback,
-                           void* user_data) {
+Result<void> AlsaAudioOutput::Init(const AudioSpec& spec,
+                                   AudioOutputCallback callback,
+                                   void* user_data) {
+  if (!callback) {
+    return Result<void>::Err(ErrorCode::kInvalidParameter,
+                             "Audio callback is null");
+  }
+
+  if (spec.sample_rate <= 0 || spec.channels <= 0) {
+    return Result<void>::Err(
+        ErrorCode::kInvalidParameter,
+        "Invalid audio spec: sample_rate=" + std::to_string(spec.sample_rate) +
+            ", channels=" + std::to_string(spec.channels));
+  }
+
   audio_spec_ = spec;
   audio_callback_ = callback;
   user_data_ = user_data;
 
   // 1. 打开PCM设备
   if (!OpenPCMDevice()) {
-    std::cerr << "Failed to open PCM device" << std::endl;
-    return false;
+    return Result<void>::Err(ErrorCode::kDeviceNotFound,
+                             "Failed to open ALSA PCM device");
   }
 
   // 2. 配置PCM参数
   if (!ConfigurePCMParams()) {
-    std::cerr << "Failed to configure PCM parameters" << std::endl;
-    return false;
+    return Result<void>::Err(ErrorCode::kAudioError,
+                             "Failed to configure ALSA PCM parameters");
   }
 
   // 3. 打开混音器(音量控制，可选)
   OpenMixer();
 
-  return true;
+  return Result<void>::Ok();
 }
 
-bool AlsaAudioOutput::Start() {
+Result<void> AlsaAudioOutput::Start() {
   if (is_playing_.load()) {
-    return true;
+    MODULE_WARN(LOG_MODULE_AUDIO, "ALSA already playing");
+    return Result<void>::Ok();  // 已经在播放，不算错误
+  }
+
+  if (!pcm_handle_) {
+    return Result<void>::Err(ErrorCode::kNotInitialized,
+                             "ALSA PCM device not initialized");
   }
 
   should_stop_ = false;
@@ -66,7 +86,8 @@ bool AlsaAudioOutput::Start() {
       std::make_unique<std::thread>(&AlsaAudioOutput::AudioThreadMain, this);
 
   is_playing_ = true;
-  return true;
+  MODULE_INFO(LOG_MODULE_AUDIO, "ALSA audio output started successfully");
+  return Result<void>::Ok();
 }
 
 void AlsaAudioOutput::Stop() {

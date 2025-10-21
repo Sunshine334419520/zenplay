@@ -12,6 +12,7 @@
 #include "loki/src/threading/loki_thread.h"
 #include "player/codec/decode.h"
 #include "player/common/blocking_queue.h"
+#include "player/common/error.h"
 #include "player/common/player_state_manager.h"
 #include "player/sync/av_sync_controller.h"
 
@@ -50,10 +51,10 @@ class PlaybackController {
   ~PlaybackController();
 
   /**
-   * @brief 开始播放
-   * @return 成功返回true
+   * @brief 启动播放
+   * @return Result<void> 成功返回Ok，失败返回错误码
    */
-  bool Start();
+  Result<void> Start();
 
   /**
    * @brief 停止播放

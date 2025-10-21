@@ -7,6 +7,7 @@ extern "C" {
 }
 
 #include "player/common/log_manager.h"
+#include "player/common/sdl_error_utils.h"
 #include "sdl_manager.h"
 
 #ifdef _WIN32
@@ -39,24 +40,26 @@ SDLRenderer::~SDLRenderer() {
   Cleanup();
 }
 
-bool SDLRenderer::Init(void* window_handle, int width, int height) {
+Result<void> SDLRenderer::Init(void* window_handle, int width, int height) {
+  if (width <= 0 || height <= 0) {
+    return Result<void>::Err(ErrorCode::kInvalidParameter,
+                             "Invalid dimensions: " + std::to_string(width) +
+                                 "x" + std::to_string(height));
+  }
+
   window_width_ = width;
   window_height_ = height;
 
   if (!InitSDL()) {
-    MODULE_ERROR(LOG_MODULE_RENDERER, "Failed to initialize SDL: {}",
-                 SDL_GetError());
-    return false;
+    return SDLErrorToResult("Initialize SDL");
   }
 
   if (!CreateRenderer(window_handle)) {
-    MODULE_ERROR(LOG_MODULE_RENDERER, "Failed to create SDL renderer: {}",
-                 SDL_GetError());
-    return false;
+    return SDLErrorToResult("Create SDL renderer");
   }
 
   renderer_initialized_ = true;
-  return true;
+  return Result<void>::Ok();
 }
 
 bool SDLRenderer::RenderFrame(AVFrame* frame) {

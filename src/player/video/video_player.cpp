@@ -34,7 +34,12 @@ bool VideoPlayer::Init(Renderer* renderer, const VideoConfig& config) {
   return true;
 }
 
-bool VideoPlayer::Start() {
+Result<void> VideoPlayer::Start() {
+  if (!renderer_) {
+    return Result<void>::Err(ErrorCode::kNotInitialized,
+                             "Renderer not initialized");
+  }
+
   MODULE_INFO(LOG_MODULE_VIDEO, "VideoPlayer Start called");
 
   // 记录播放开始时间
@@ -45,7 +50,7 @@ bool VideoPlayer::Start() {
       std::make_unique<std::thread>(&VideoPlayer::VideoRenderThread, this);
 
   MODULE_INFO(LOG_MODULE_VIDEO, "VideoPlayer started");
-  return true;
+  return Result<void>::Ok();
 }
 
 void VideoPlayer::Stop() {

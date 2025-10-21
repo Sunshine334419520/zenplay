@@ -10,6 +10,7 @@ extern "C" {
 }
 
 #include "player/common/common_def.h"
+#include "player/common/error.h"
 
 namespace zenplay {
 
@@ -27,10 +28,37 @@ class Decoder {
   Decoder();
   virtual ~Decoder();
 
-  bool Open(AVCodecParameters* codec_params, AVDictionary** options = nullptr);
+  /**
+   * @brief 打开解码器
+   * @param codec_params 编解码器参数
+   * @param options 解码器选项（可选）
+   * @return Result<void> 成功返回 Ok()，失败返回详细错误
+   */
+  Result<void> Open(AVCodecParameters* codec_params,
+                    AVDictionary** options = nullptr);
+
+  /**
+   * @brief 关闭解码器并释放资源
+   */
   void Close();
 
+  /**
+   * @brief 解码数据包并接收所有可用帧
+   * @param packet 待解码的数据包
+   * @param frames 输出帧列表
+   * @return 成功返回 true
+   */
   bool Decode(AVPacket* packet, std::vector<AVFramePtr>* frames);
+
+  /**
+   * @brief 接收单个解码后的帧
+   * @return Result<AVFrame*> 成功返回帧指针，EAGAIN 返回 nullptr，失败返回错误
+   */
+  Result<AVFrame*> ReceiveFrame();
+
+  /**
+   * @brief 刷新解码器缓冲区
+   */
   bool Flush(std::vector<AVFramePtr>* frames);
 
   bool opened() const { return opened_; }

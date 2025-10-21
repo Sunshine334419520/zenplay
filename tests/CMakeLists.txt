@@ -13,6 +13,7 @@ set(PLAYER_SOURCES
     
     # 错误处理系统
     ${CMAKE_SOURCE_DIR}/src/player/common/error.cpp
+    ${CMAKE_SOURCE_DIR}/src/player/common/ffmpeg_error_utils.cpp
     
     # AVSyncController
     ${CMAKE_SOURCE_DIR}/src/player/sync/av_sync_controller.cpp
@@ -30,6 +31,13 @@ set(PLAYER_SOURCES
     ${CMAKE_SOURCE_DIR}/src/player/common/timer.cpp
 )
 
+# Windows 平台专用源文件
+if (WIN32)
+    list(APPEND PLAYER_SOURCES
+        ${CMAKE_SOURCE_DIR}/src/player/common/win32_error_utils.cpp
+    )
+endif()
+
 # 收集测试文件
 set(TEST_SOURCES
     test_main.cpp
@@ -38,7 +46,15 @@ set(TEST_SOURCES
     test_av_sync_controller.cpp
     test_blocking_queue.cpp
     test_player_state_manager_wait_resume.cpp
+    test_error_utils.cpp
 )
+
+# Windows 平台专用测试文件
+if (WIN32)
+    list(APPEND TEST_SOURCES
+        test_win32_error_utils.cpp
+    )
+endif()
 
 # 创建测试可执行文件
 add_executable(zenplay_tests
@@ -52,8 +68,8 @@ target_link_libraries(zenplay_tests PRIVATE
     # GTest::gtest_main  # 不链接，因为我们使用自定义的 test_main.cpp
     spdlog::spdlog
     nlohmann_json::nlohmann_json
+    ffmpeg::avutil  # FFmpeg 错误工具需要
     # Qt6::Core  # 如果测试涉及 Qt 组件
-    # ffmpeg::avutil  # 如果测试涉及 FFmpeg
 )
 
 # 包含目录

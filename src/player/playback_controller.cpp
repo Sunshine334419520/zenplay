@@ -132,7 +132,7 @@ PlaybackController::~PlaybackController() {
   Stop();
 }
 
-bool PlaybackController::Start() {
+Result<void> PlaybackController::Start() {
   // 注意：不再需要 state_mutex_，状态由 PlayerStateManager 管理
 
   // ✅ 重置队列状态（如果之前调用过 Stop()）
@@ -159,14 +159,22 @@ bool PlaybackController::Start() {
   // 启动音频播放器
   // 注意: time_base 现在通过 PushFrame(frame, timestamp) 传递，不再需要单独设置
   if (audio_player_) {
-    audio_player_->Start();
+    auto audio_start_result = audio_player_->Start();
+    if (!audio_start_result.IsOk()) {
+      MODULE_ERROR(LOG_MODULE_PLAYER, "Failed to start AudioPlayer: {}",
+                   audio_start_result.Error().message);
+      // 即使音频启动失败，也继续启动视频（只有视频的场景）
+    }
   }
 
   // 启动视频播放器
   if (video_player_) {
     MODULE_INFO(LOG_MODULE_PLAYER, "Starting VideoPlayer");
-    if (!video_player_->Start()) {
-      MODULE_ERROR(LOG_MODULE_PLAYER, "Failed to start VideoPlayer");
+    auto video_start_result = video_player_->Start();
+    if (!video_start_result.IsOk()) {
+      MODULE_ERROR(LOG_MODULE_PLAYER, "Failed to start VideoPlayer: {}",
+                   video_start_result.Error().message);
+      // 视频启动失败，如果有音频可以继续（只有音频的场景）
     } else {
       MODULE_INFO(LOG_MODULE_PLAYER, "VideoPlayer started successfully");
     }
@@ -183,7 +191,7 @@ bool PlaybackController::Start() {
       std::make_unique<std::thread>(&PlaybackController::SeekTask, this);
 
   MODULE_INFO(LOG_MODULE_PLAYER, "PlaybackController started");
-  return true;
+  return Result<void>::Ok();
 }
 
 void PlaybackController::Stop() {
@@ -312,29 +320,40 @@ void PlaybackController::DemuxTask() {
 
     // ✅ 移除队列大小检查和 sleep，BlockingQueue 会自动阻塞
 
-    AVPacket* packet = av_packet_alloc();
-    if (!packet) {
-      break;
-    }
-
     // 计算一下读取时间
     TIMER_START(demux_read);
 
-    if (!demuxer_->ReadPacket(&packet)) {
-      // 发送EOF信号
+    auto packet_result = demuxer_->ReadPacket();
+    if (!packet_result.IsOk()) {
+      // 读取失败，发送EOF信号
       if (video_decoder_ && video_decoder_->opened()) {
         if (!video_packet_queue_.Push(nullptr)) {
-          av_packet_free(&packet);
           break;  // 队列已停止
         }
       }
       if (audio_decoder_ && audio_decoder_->opened()) {
         if (!audio_packet_queue_.Push(nullptr)) {
-          av_packet_free(&packet);
           break;  // 队列已停止
         }
       }
-      av_packet_free(&packet);
+      break;
+    }
+
+    AVPacket* packet = packet_result.Value();
+
+    // ReadPacket 返回 nullptr 表示 EOF（不是错误）
+    if (!packet) {
+      // 发送EOF信号
+      if (video_decoder_ && video_decoder_->opened()) {
+        if (!video_packet_queue_.Push(nullptr)) {
+          break;  // 队列已停止
+        }
+      }
+      if (audio_decoder_ && audio_decoder_->opened()) {
+        if (!audio_packet_queue_.Push(nullptr)) {
+          break;  // 队列已停止
+        }
+      }
       break;
     }
 

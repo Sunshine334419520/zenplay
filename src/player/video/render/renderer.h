@@ -2,6 +2,8 @@
 
 #include <cstdint>
 
+#include "player/common/error.h"
+
 extern "C" {
 #include <libavutil/frame.h>
 }
@@ -16,7 +18,7 @@ class Renderer {
   virtual ~Renderer() = default;
 
   // Initialize the renderer with window handle
-  virtual bool Init(void* window_handle, int width, int height) = 0;
+  virtual Result<void> Init(void* window_handle, int width, int height) = 0;
 
   // Render a video frame
   virtual bool RenderFrame(AVFrame* frame) = 0;

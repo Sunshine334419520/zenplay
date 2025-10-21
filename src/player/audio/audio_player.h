@@ -14,6 +14,7 @@ extern "C" {
 #include "player/audio/resampled_audio_frame.h"
 #include "player/common/blocking_queue.h"
 #include "player/common/common_def.h"
+#include "player/common/error.h"
 #include "player/common/player_state_manager.h"
 #include "player/sync/av_sync_controller.h"
 
@@ -63,15 +64,15 @@ class AudioPlayer {
   /**
    * @brief 初始化音频播放器
    * @param config 音频配置
-   * @return 成功返回true
+   * @return Result<void> 成功返回Ok，失败返回错误码
    */
-  bool Init(const AudioConfig& config = AudioConfig{});
+  Result<void> Init(const AudioConfig& config = AudioConfig{});
 
   /**
    * @brief 开始播放
-   * @return 成功返回true
+   * @return Result<void> 成功返回Ok，失败返回错误码
    */
-  bool Start();
+  Result<void> Start();
 
   /**
    * @brief 停止播放

@@ -42,20 +42,24 @@ bool ZenPlayer::Open(const std::string& url) {
 
   state_manager_->TransitionToOpening();
 
-  if (!demuxer_->Open(url)) {
-    MODULE_ERROR(LOG_MODULE_PLAYER, "Failed to open demuxer for URL: %s",
-                 url.c_str());
-    return false;  // Failed to open demuxer
+  // Open demuxer
+  auto demux_result = demuxer_->Open(url);
+  if (!demux_result.IsOk()) {
+    MODULE_ERROR(LOG_MODULE_PLAYER, "Failed to open demuxer: {}",
+                 demux_result.Error().message);
+    return false;
   }
 
   // Open video decoder
   AVStream* video_stream =
       demuxer_->findStreamByIndex(demuxer_->active_video_stream_index());
   if (video_stream) {
-    if (!video_decoder_->Open(video_stream->codecpar)) {
+    auto video_result = video_decoder_->Open(video_stream->codecpar);
+    if (!video_result.IsOk()) {
       demuxer_->Close();
-      MODULE_ERROR(LOG_MODULE_PLAYER, "Failed to open video decoder");
-      return false;  // Failed to open video decoder
+      MODULE_ERROR(LOG_MODULE_PLAYER, "Failed to open video decoder: {}",
+                   video_result.Error().message);
+      return false;
     }
   }
 
@@ -63,11 +67,13 @@ bool ZenPlayer::Open(const std::string& url) {
   AVStream* audio_stream =
       demuxer_->findStreamByIndex(demuxer_->active_audio_stream_index());
   if (audio_stream) {
-    if (!audio_decoder_->Open(audio_stream->codecpar)) {
+    auto audio_result = audio_decoder_->Open(audio_stream->codecpar);
+    if (!audio_result.IsOk()) {
       video_decoder_->Close();
       demuxer_->Close();
-      MODULE_ERROR(LOG_MODULE_PLAYER, "Failed to open audio decoder");
-      return false;  // Failed to open audio decoder
+      MODULE_ERROR(LOG_MODULE_PLAYER, "Failed to open audio decoder: {}",
+                   audio_result.Error().message);
+      return false;
     }
   }
 
@@ -93,7 +99,11 @@ bool ZenPlayer::SetRenderWindow(void* window_handle, int width, int height) {
               width, height);
 
   std::thread init_thread([this, window_handle, width, height]() {
-    renderer_->Init(window_handle, width, height);
+    auto result = renderer_->Init(window_handle, width, height);
+    if (!result.IsOk()) {
+      MODULE_ERROR(LOG_MODULE_PLAYER, "Renderer initialization failed: {}",
+                   result.Error().message);
+    }
     // 通过回调或信号通知初始化完成
   });
   init_thread.detach();  // 分离线程，不等待
@@ -166,15 +176,17 @@ bool ZenPlayer::Play() {
   // ⚠️ 关键修复：先转换状态，再启动线程，避免竞态条件
   state_manager_->TransitionToPlaying();
 
-  if (playback_controller_->Start()) {
-    MODULE_INFO(LOG_MODULE_PLAYER, "Playback started");
-    return true;
+  auto start_result = playback_controller_->Start();
+  if (!start_result.IsOk()) {
+    // 启动失败，回滚状态
+    state_manager_->TransitionToStopped();
+    MODULE_ERROR(LOG_MODULE_PLAYER, "Failed to start playback: {}",
+                 start_result.Error().message);
+    return false;
   }
 
-  // 启动失败，回滚状态
-  state_manager_->TransitionToStopped();
-  MODULE_ERROR(LOG_MODULE_PLAYER, "Failed to start playback");
-  return false;
+  MODULE_INFO(LOG_MODULE_PLAYER, "Playback started");
+  return true;
 }
 
 bool ZenPlayer::Pause() {

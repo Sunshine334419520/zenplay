@@ -9,6 +9,7 @@
 #include <thread>
 
 #include "player/common/common_def.h"
+#include "player/common/error.h"
 #include "player/common/player_state_manager.h"
 #include "player/sync/av_sync_controller.h"
 #include "player/video/render/renderer.h"
@@ -57,9 +58,9 @@ class VideoPlayer {
 
   /**
    * @brief 开始播放
-   * @return 成功返回true
+   * @return Result<void> 成功返回Ok，失败返回错误码
    */
-  bool Start();
+  Result<void> Start();
 
   /**
    * @brief 停止播放

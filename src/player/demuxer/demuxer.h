@@ -4,6 +4,8 @@
 #include <string>
 #include <vector>
 
+#include "player/common/error.h"
+
 extern "C" {
 #include <libavformat/avformat.h>
 #include <libavutil/avutil.h>
@@ -18,11 +20,31 @@ class Demuxer {
   Demuxer();
   ~Demuxer();
 
-  bool Open(const std::string& url);
+  /**
+   * @brief 打开媒体文件或流
+   * @param url 文件路径或网络 URL
+   * @return Result<void> 成功返回 Ok()，失败返回详细错误信息
+   */
+  Result<void> Open(const std::string& url);
+
+  /**
+   * @brief 关闭 Demuxer 并释放资源
+   */
   void Close();
 
-  bool ReadPacket(AVPacket** packet);
+  /**
+   * @brief 读取下一个数据包
+   * @return Result<AVPacket*> 成功返回数据包指针，EOF 返回
+   * nullptr，失败返回错误
+   */
+  Result<AVPacket*> ReadPacket();
 
+  /**
+   * @brief 跳转到指定时间戳
+   * @param timestamp 目标时间戳（微秒）
+   * @param backward 是否向后搜索关键帧
+   * @return 成功返回 true，失败返回 false
+   */
   bool Seek(int64_t timestamp, bool backward = false);
 
   AVDictionary* GetMetadata() const;
