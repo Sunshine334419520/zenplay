@@ -314,7 +314,7 @@ class Result {
   // ============ 链式操作 ============
 
   /**
-   * @brief 如果当前是 Ok，对值应用函数并返回新的 Result
+   * @brief 如果当前是 Ok，应用函数返回新的 Result
    * 用于链式调用，便于函数组合
    *
    * 示例：
@@ -322,10 +322,10 @@ class Result {
    *     .AndThen([](int v) { return Result<int>::Ok(v * 2); });
    */
   template <typename F>
-  Result<typename std::invoke_result_t<F, T>::ValueType> AndThen(F&& f) {
-    using ReturnType = typename std::invoke_result_t<F, T>::ValueType;
+  auto AndThen(F&& f) -> std::invoke_result_t<F, T> {
+    using ResultType = std::invoke_result_t<F, T>;
     if (!IsOk()) {
-      return Result<ReturnType>::Err(error_code_, message_);
+      return ResultType::Err(error_code_, message_);
     }
     return std::forward<F>(f)(std::move(value_));
   }
@@ -354,8 +354,8 @@ class Result {
    *     .Map([](int v) { return std::to_string(v); });
    */
   template <typename F>
-  Result<typename std::invoke_result_t<F, T>::type> Map(F&& f) {
-    using ReturnType = typename std::invoke_result_t<F, T>::type;
+  Result<std::invoke_result_t<F, T>> Map(F&& f) {
+    using ReturnType = std::invoke_result_t<F, T>;
     if (!IsOk()) {
       return Result<ReturnType>::Err(error_code_, message_);
     }

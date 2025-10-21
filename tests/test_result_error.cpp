@@ -1,11 +1,13 @@
 #include <gtest/gtest.h>
 
+#include <array>
 #include <memory>
 #include <sstream>
+#include <variant>
 
 #include "player/common/error.h"
 
-using namespace zenplay::player;
+using namespace zenplay;
 
 /**
  * @class ResultErrorTest
@@ -137,7 +139,7 @@ TEST_F(ResultErrorTest, ResultWithPointer) {
 
   EXPECT_TRUE(r.IsOk());
   EXPECT_EQ(*r.Value(), 42);
-  EXPECT_EQ(*r.operator->(), 42);
+  EXPECT_EQ(r.Value(), ptr);
 
   delete ptr;
 }
