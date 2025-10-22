@@ -12,6 +12,8 @@
 #include <QWindow>
 #include <iostream>
 
+#include "player/common/log_manager.h"
+
 #ifdef _WIN32
 #include <windows.h>
 // #include <QWinTaskbarButton>  // Removed because it's not used and may not be
@@ -352,29 +354,47 @@ void MainWindow::setMediaFile(const QString& filePath) {
   progressSlider_->setValue(0);
   timeLabel_->setText(formatTime(0));  // 使用formatTime格式化0毫秒
 
-  std::cout << "Opening media file: " << filePath.toStdString() << std::endl;
+  ZENPLAY_INFO("Opening media file: {}", filePath.toStdString());
 
   // 尝试打开媒体文件
-  if (!player_->Open(filePath.toStdString())) {
-    statusLabel_->setText(tr("Failed to open media file"));
-    QMessageBox::critical(this, tr("Error"),
-                          tr("Failed to open media file:\n%1").arg(filePath));
+  auto open_result = player_->Open(filePath.toStdString());
+  if (!open_result.IsOk()) {
+    QString errorMsg = QString::fromStdString("Failed to open media file:\n" +
+                                              open_result.Error().message);
+    ZENPLAY_ERROR("Failed to open media file: {} (ErrorCode: {})",
+                  open_result.Error().message,
+                  static_cast<int>(open_result.Error().code));
+    statusLabel_->setText(
+        tr("Failed to open: %1")
+            .arg(QString::fromStdString(open_result.Error().message)));
+    QMessageBox::critical(this, tr("Error"), errorMsg);
     updateControlBarState();  // 更新UI状态反映打开失败
     return;
   }
 
+  ZENPLAY_INFO("Media file opened successfully");
   currentMediaPath_ = filePath;
 
   // 设置渲染窗口
   void* handle = videoWidget_->getNativeHandle();
-  if (!handle || !player_->SetRenderWindow(handle, videoWidget_->width(),
-                                           videoWidget_->height())) {
-    statusLabel_->setText(tr("Failed to initialize renderer"));
-    QMessageBox::critical(this, tr("Error"),
-                          tr("Failed to initialize video renderer."));
+  auto render_result = player_->SetRenderWindow(handle, videoWidget_->width(),
+                                                videoWidget_->height());
+  if (!render_result.IsOk()) {
+    QString errorMsg = QString::fromStdString(
+        "Failed to initialize renderer:\n" + render_result.Error().message);
+    ZENPLAY_ERROR("Failed to initialize renderer: {} (ErrorCode: {})",
+                  render_result.Error().message,
+                  static_cast<int>(render_result.Error().code));
+    statusLabel_->setText(
+        tr("Renderer error: %1")
+            .arg(QString::fromStdString(render_result.Error().message)));
+    QMessageBox::critical(this, tr("Error"), errorMsg);
     updateControlBarState();  // 更新UI状态反映渲染器失败
     return;
   }
+
+  ZENPLAY_INFO(
+      "Renderer window set successfully (async initialization started)");
 
   // 更新UI信息
   totalDuration_ = player_->GetDuration();  // 现在返回毫秒
@@ -387,11 +407,18 @@ void MainWindow::setMediaFile(const QString& filePath) {
   setWindowTitle(tr("ZenPlay - %1").arg(fileInfo.fileName()));
 
   // 自动开始播放
-  if (player_->Play()) {
+  auto play_result = player_->Play();
+  if (play_result.IsOk()) {
+    ZENPLAY_INFO("Auto-play started successfully");
     updateTimer_->start();
     statusLabel_->setText(tr("Playing"));
   } else {
-    statusLabel_->setText(tr("Media loaded successfully"));
+    ZENPLAY_ERROR("Auto-play failed: {} (ErrorCode: {})",
+                  play_result.Error().message,
+                  static_cast<int>(play_result.Error().code));
+    statusLabel_->setText(
+        tr("Play failed: %1")
+            .arg(QString::fromStdString(play_result.Error().message)));
   }
 
   // 只在最后统一更新一次控制栏状态
@@ -414,27 +441,44 @@ void MainWindow::togglePlayPause() {
     case PlayerState::kOpening:
     case PlayerState::kBuffering:
     case PlayerState::kSeeking:
-    case PlayerState::kError:
-      success = player_->Play();
+    case PlayerState::kError: {
+      auto play_result = player_->Play();
+      success = play_result.IsOk();
       if (success) {
+        ZENPLAY_INFO("Play resumed successfully");
         updateTimer_->start();
         statusText = tr("Playing");
+      } else {
+        ZENPLAY_ERROR("Play failed: {} (ErrorCode: {})",
+                      play_result.Error().message,
+                      static_cast<int>(play_result.Error().code));
+        statusLabel_->setText(
+            tr("Play failed: %1")
+                .arg(QString::fromStdString(play_result.Error().message)));
       }
       break;
-    case PlayerState::kPlaying:
-      success = player_->Pause();
+    }
+    case PlayerState::kPlaying: {
+      auto pause_result = player_->Pause();
+      success = pause_result.IsOk();
       if (success) {
+        ZENPLAY_INFO("Playback paused successfully");
         updateTimer_->stop();
         statusText = tr("Paused");
+      } else {
+        ZENPLAY_ERROR("Pause failed: {} (ErrorCode: {})",
+                      pause_result.Error().message,
+                      static_cast<int>(pause_result.Error().code));
+        statusLabel_->setText(
+            tr("Pause failed: %1")
+                .arg(QString::fromStdString(pause_result.Error().message)));
       }
       break;
+    }
   }
 
   if (success && !statusText.isEmpty()) {
     statusLabel_->setText(statusText);
-  } else if (!success) {
-    // 播放/暂停失败时的处理
-    statusLabel_->setText(tr("Operation failed"));
   }
 
   updateControlBarState();
@@ -445,16 +489,15 @@ void MainWindow::stopPlayback() {
     return;
   }
 
-  if (player_->Stop()) {
-    updateTimer_->stop();
-    statusLabel_->setText(tr("Stopped"));
+  player_->Stop();
+  updateTimer_->stop();
+  statusLabel_->setText(tr("Stopped"));
 
-    // Reset progress
-    progressSlider_->setValue(0);
-    timeLabel_->setText(formatTime(0));  // 使用formatTime格式化0毫秒
+  // Reset progress
+  progressSlider_->setValue(0);
+  timeLabel_->setText(formatTime(0));  // 使用formatTime格式化0毫秒
 
-    updateControlBarState();
-  }
+  updateControlBarState();
 }
 
 void MainWindow::onProgressSliderPressed() {

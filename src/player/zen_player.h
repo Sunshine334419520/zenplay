@@ -3,6 +3,7 @@
 #include <memory>
 #include <string>
 
+#include "player/common/error.h"
 #include "player/common/player_state_manager.h"
 
 namespace zenplay {
@@ -18,18 +19,51 @@ class ZenPlayer {
   ZenPlayer();
   ~ZenPlayer();
 
-  bool Open(const std::string& url);
+  /**
+   * @brief 打开媒体文件
+   * @param url 文件路径或网络URL
+   * @return Result<void> 成功返回Ok，失败返回详细错误信息
+   */
+  Result<void> Open(const std::string& url);
+
+  /**
+   * @brief 关闭播放器，释放所有资源
+   * @note void 返回类型，不会失败
+   */
   void Close();
 
-  // 设置渲染窗口句柄
-  bool SetRenderWindow(void* window_handle, int width, int height);
+  /**
+   * @brief 设置渲染窗口句柄
+   * @param window_handle 窗口句柄
+   * @param width 窗口宽度
+   * @param height 窗口高度
+   * @return Result<void> 成功返回Ok，失败返回错误信息
+   */
+  Result<void> SetRenderWindow(void* window_handle, int width, int height);
 
-  // 通知渲染器窗口大小变化
+  /**
+   * @brief 通知渲染器窗口大小变化
+   * @note void 返回类型，仅通知操作
+   */
   void OnWindowResize(int width, int height);
 
-  bool Play();
-  bool Pause();
-  bool Stop();
+  /**
+   * @brief 开始播放
+   * @return Result<void> 成功返回Ok，失败返回错误信息
+   */
+  Result<void> Play();
+
+  /**
+   * @brief 暂停播放
+   * @return Result<void> 成功返回Ok，失败返回错误信息
+   */
+  Result<void> Pause();
+
+  /**
+   * @brief 停止播放
+   * @return Result<void> 成功返回Ok，失败返回错误信息
+   */
+  void Stop();
 
   /**
    * @brief 跳转到指定时间点（同步版本，已弃用）

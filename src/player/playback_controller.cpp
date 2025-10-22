@@ -51,8 +51,10 @@ PlaybackController::PlaybackController(
   audio_config.target_bits_per_sample = 16;
   audio_config.buffer_size = 1024;  // 缓冲区大小
 
-  if (!audio_player_->Init(audio_config)) {
-    MODULE_ERROR(LOG_MODULE_PLAYER, "Failed to initialize audio player");
+  auto audio_init_result = audio_player_->Init(audio_config);
+  if (!audio_init_result.IsOk()) {
+    MODULE_ERROR(LOG_MODULE_PLAYER, "Failed to initialize audio player: {}",
+                 audio_init_result.Error().message);
     audio_player_.reset();
   }
 

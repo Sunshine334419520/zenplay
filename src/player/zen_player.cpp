@@ -88,27 +88,43 @@ bool ZenPlayer::Open(const std::string& url) {
   return true;  // Successfully opened
 }
 
-bool ZenPlayer::SetRenderWindow(void* window_handle, int width, int height) {
+Result<void> ZenPlayer::SetRenderWindow(void* window_handle,
+                                        int width,
+                                        int height) {
   if (!is_opened_ || !renderer_) {
-    MODULE_ERROR(LOG_MODULE_PLAYER,
-                 "Player not opened or renderer not available");
-    return false;
+    return Result<void>::Err(ErrorCode::kNotInitialized,
+                             "Player not opened or renderer not available");
+  }
+
+  if (!window_handle) {
+    return Result<void>::Err(ErrorCode::kInvalidParameter,
+                             "Window handle is null");
+  }
+
+  if (width <= 0 || height <= 0) {
+    return Result<void>::Err(
+        ErrorCode::kInvalidParameter,
+        "Invalid window dimensions: " + std::to_string(width) + "x" +
+            std::to_string(height));
   }
 
   MODULE_INFO(LOG_MODULE_PLAYER, "Starting renderer initialization ({}x{})",
               width, height);
 
+  // 异步初始化渲染器（避免阻塞 UI 线程）
   std::thread init_thread([this, window_handle, width, height]() {
     auto result = renderer_->Init(window_handle, width, height);
     if (!result.IsOk()) {
       MODULE_ERROR(LOG_MODULE_PLAYER, "Renderer initialization failed: {}",
                    result.Error().message);
+      state_manager_->TransitionToError();
+    } else {
+      MODULE_INFO(LOG_MODULE_PLAYER, "Renderer initialized successfully");
     }
-    // 通过回调或信号通知初始化完成
   });
   init_thread.detach();  // 分离线程，不等待
 
-  return true;  // 立即返回
+  return Result<void>::Ok();  // 立即返回，表示异步初始化已启动
 }
 
 void ZenPlayer::OnWindowResize(int width, int height) {
@@ -153,15 +169,17 @@ void ZenPlayer::Close() {
   MODULE_INFO(LOG_MODULE_PLAYER, "Player closed");
 }
 
-bool ZenPlayer::Play() {
+Result<void> ZenPlayer::Play() {
   if (!is_opened_ || !playback_controller_) {
-    MODULE_WARN(LOG_MODULE_PLAYER, "Cannot play: player not opened");
-    return false;
+    return Result<void>::Err(
+        ErrorCode::kNotInitialized,
+        "Player not opened or playback controller not available");
   }
 
-  // 如果已经在播放，直接返回
+  // 如果已经在播放，直接返回成功
   if (state_manager_->IsPlaying()) {
-    return true;
+    MODULE_INFO(LOG_MODULE_PLAYER, "Already playing");
+    return Result<void>::Ok();
   }
 
   // 如果是暂停状态，恢复播放
@@ -169,7 +187,7 @@ bool ZenPlayer::Play() {
     playback_controller_->Resume();
     state_manager_->TransitionToPlaying();
     MODULE_INFO(LOG_MODULE_PLAYER, "Resumed from pause");
-    return true;
+    return Result<void>::Ok();
   }
 
   // 从停止状态开始播放
@@ -180,40 +198,42 @@ bool ZenPlayer::Play() {
   if (!start_result.IsOk()) {
     // 启动失败，回滚状态
     state_manager_->TransitionToStopped();
-    MODULE_ERROR(LOG_MODULE_PLAYER, "Failed to start playback: {}",
-                 start_result.Error().message);
-    return false;
+    return start_result;  // 直接传播错误
   }
 
   MODULE_INFO(LOG_MODULE_PLAYER, "Playback started");
-  return true;
+  return Result<void>::Ok();
 }
 
-bool ZenPlayer::Pause() {
+Result<void> ZenPlayer::Pause() {
   if (!is_opened_ || !playback_controller_) {
-    MODULE_WARN(LOG_MODULE_PLAYER, "Cannot pause: player not opened");
-    return false;
+    return Result<void>::Err(
+        ErrorCode::kNotInitialized,
+        "Player not opened or playback controller not available");
   }
 
   if (!state_manager_->IsPlaying()) {
-    MODULE_WARN(LOG_MODULE_PLAYER, "Cannot pause: not playing");
-    return false;
+    return Result<void>::Err(ErrorCode::kInvalidState,
+                             "Cannot pause: not in playing state");
   }
 
   playback_controller_->Pause();
   state_manager_->TransitionToPaused();
   MODULE_INFO(LOG_MODULE_PLAYER, "Playback paused");
-  return true;
+  return Result<void>::Ok();
 }
 
-bool ZenPlayer::Stop() {
+void ZenPlayer::Stop() {
   if (!is_opened_ || !playback_controller_) {
-    MODULE_WARN(LOG_MODULE_PLAYER, "Cannot stop: player not opened");
-    return false;
+    MODULE_WARN(
+        LOG_MODULE_PLAYER,
+        "Cannot stop: player not opened or playback controller not available");
+    return;
   }
 
   if (state_manager_->IsStopped()) {
-    return true;  // Already stopped
+    MODULE_INFO(LOG_MODULE_PLAYER, "Already stopped");
+    return;
   }
 
   // ⚠️ 先转换状态，让工作线程看到停止信号
@@ -223,7 +243,7 @@ bool ZenPlayer::Stop() {
   playback_controller_->Stop();
 
   MODULE_INFO(LOG_MODULE_PLAYER, "Playback stopped");
-  return true;
+  return;
 }
 
 bool ZenPlayer::Seek(int64_t timestamp, bool backward) {
