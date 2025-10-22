@@ -33,59 +33,96 @@ ZenPlayer::~ZenPlayer() {
   Close();
 }
 
-bool ZenPlayer::Open(const std::string& url) {
+void ZenPlayer::CleanupResources() {
+  MODULE_DEBUG(LOG_MODULE_PLAYER, "Cleaning up resources...");
+
+  // 🧹 按照依赖关系的逆序清理资源
+
+  // 1. 先停止播放控制器（依赖所有其他资源）
+  if (playback_controller_) {
+    playback_controller_.reset();
+  }
+
+  // 2. 关闭解码器（依赖解封装器）
+  if (audio_decoder_ && audio_decoder_->opened()) {
+    audio_decoder_->Close();
+  }
+  if (video_decoder_ && video_decoder_->opened()) {
+    video_decoder_->Close();
+  }
+
+  // 3. 最后关闭解封装器（底层资源）
+  if (demuxer_ && demuxer_->opened()) {
+    demuxer_->Close();
+  }
+
+  MODULE_DEBUG(LOG_MODULE_PLAYER, "Resources cleaned up");
+}
+
+Result<void> ZenPlayer::Open(const std::string& url) {
   MODULE_INFO(LOG_MODULE_PLAYER, "Opening URL: {}", url.c_str());
 
+  // 如果已打开，先关闭
   if (is_opened_) {
     Close();
   }
 
   state_manager_->TransitionToOpening();
 
-  // Open demuxer
-  auto demux_result = demuxer_->Open(url);
-  if (!demux_result.IsOk()) {
-    MODULE_ERROR(LOG_MODULE_PLAYER, "Failed to open demuxer: {}",
-                 demux_result.Error().message);
-    return false;
-  }
+  return demuxer_
+      ->Open(url)
+      // ✅ Step 1 成功：Demuxer 已打开
+      .AndThen([this](auto) -> Result<void> {
+        // 尝试打开视频解码器（如果有视频流）
+        AVStream* video_stream =
+            demuxer_->findStreamByIndex(demuxer_->active_video_stream_index());
+        if (video_stream) {
+          MODULE_INFO(LOG_MODULE_PLAYER, "Opening video decoder...");
+          return video_decoder_->Open(video_stream->codecpar);
+        }
+        // 没有视频流，返回成功继续
+        MODULE_INFO(LOG_MODULE_PLAYER, "No video stream found, skipping");
+        return Result<void>::Ok();
+      })
+      // ✅ Step 2 成功：Video Decoder 已打开（或跳过）
+      .AndThen([this](auto) -> Result<void> {
+        // 尝试打开音频解码器（如果有音频流）
+        AVStream* audio_stream =
+            demuxer_->findStreamByIndex(demuxer_->active_audio_stream_index());
+        if (audio_stream) {
+          MODULE_INFO(LOG_MODULE_PLAYER, "Opening audio decoder...");
+          return audio_decoder_->Open(audio_stream->codecpar);
+        }
+        // 没有音频流，返回成功继续
+        MODULE_INFO(LOG_MODULE_PLAYER, "No audio stream found, skipping");
+        return Result<void>::Ok();
+      })
+      // ✅ Step 3 成功：Audio Decoder 已打开（或跳过）
+      .AndThen([this](auto) -> Result<void> {
+        // 创建播放控制器
+        MODULE_INFO(LOG_MODULE_PLAYER, "Creating playback controller...");
+        playback_controller_ = std::make_unique<PlaybackController>(
+            state_manager_, demuxer_.get(), video_decoder_.get(),
+            audio_decoder_.get(), renderer_.get());
 
-  // Open video decoder
-  AVStream* video_stream =
-      demuxer_->findStreamByIndex(demuxer_->active_video_stream_index());
-  if (video_stream) {
-    auto video_result = video_decoder_->Open(video_stream->codecpar);
-    if (!video_result.IsOk()) {
-      demuxer_->Close();
-      MODULE_ERROR(LOG_MODULE_PLAYER, "Failed to open video decoder: {}",
-                   video_result.Error().message);
-      return false;
-    }
-  }
+        is_opened_ = true;
+        state_manager_->TransitionToStopped();
+        MODULE_INFO(LOG_MODULE_PLAYER,
+                    "✅ File opened successfully, state: Stopped");
+        return Result<void>::Ok();
+      })
+      .MapErr([this, &url](ErrorCode code) -> ErrorCode {
+        MODULE_ERROR(LOG_MODULE_PLAYER, "❌ Failed to open '{}': {} ({})", url,
+                     ErrorCodeToString(code), static_cast<int>(code));
 
-  // Open audio decoder
-  AVStream* audio_stream =
-      demuxer_->findStreamByIndex(demuxer_->active_audio_stream_index());
-  if (audio_stream) {
-    auto audio_result = audio_decoder_->Open(audio_stream->codecpar);
-    if (!audio_result.IsOk()) {
-      video_decoder_->Close();
-      demuxer_->Close();
-      MODULE_ERROR(LOG_MODULE_PLAYER, "Failed to open audio decoder: {}",
-                   audio_result.Error().message);
-      return false;
-    }
-  }
+        CleanupResources();
 
-  // 创建播放控制器（传递状态管理器）
-  playback_controller_ = std::make_unique<PlaybackController>(
-      state_manager_, demuxer_.get(), video_decoder_.get(),
-      audio_decoder_.get(), renderer_.get());
+        is_opened_ = false;
+        state_manager_->TransitionToError();
 
-  is_opened_ = true;
-  state_manager_->TransitionToStopped();
-  MODULE_INFO(LOG_MODULE_PLAYER, "File opened successfully, state: Stopped");
-  return true;  // Successfully opened
+        // 保持原错误码不变（也可以转换为其他错误码）
+        return code;
+      });
 }
 
 Result<void> ZenPlayer::SetRenderWindow(void* window_handle,
@@ -145,24 +182,10 @@ void ZenPlayer::Close() {
 
   MODULE_INFO(LOG_MODULE_PLAYER, "Closing player");
 
-  // 停止播放
+  // 停止播放（如果正在播放）
   Stop();
 
-  // 关闭播放控制器
-  playback_controller_.reset();
-
-  // 关闭解码器
-  if (video_decoder_) {
-    video_decoder_->Close();
-  }
-  if (audio_decoder_) {
-    audio_decoder_->Close();
-  }
-
-  // 关闭解封装器
-  if (demuxer_) {
-    demuxer_->Close();
-  }
+  CleanupResources();
 
   is_opened_ = false;
   state_manager_->TransitionToIdle();

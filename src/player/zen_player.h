@@ -105,6 +105,13 @@ class ZenPlayer {
   bool IsOpened() const { return is_opened_; }
 
  private:
+  /**
+   * @brief 清理所有资源（内部辅助方法）
+   * @details 释放 PlaybackController、解码器、解封装器等资源
+   *          可被 Open() 错误处理和 Close() 共用
+   */
+  void CleanupResources();
+
   std::unique_ptr<Demuxer> demuxer_;
   std::unique_ptr<VideoDecoder> video_decoder_;
   std::unique_ptr<AudioDecoder> audio_decoder_;
