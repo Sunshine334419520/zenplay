@@ -1,10 +1,6 @@
 cmake_minimum_required(VERSION 3.23)
 project(zenplay)
 
-#set(CMAKE_TOOLCHAIN_FILE ${CMAKE_BINARY_DIR}/generators/conan_toolchain.cmake)
-#set(CMAKE_TOOLCHAIN_FILE ${CMAKE_BINARY_DIR}/generators/conan_toolchain.cmake)
-#message(${CMAKE_BINARY_DIR}/generators/conan_toolchain.cmake)
-
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
@@ -13,7 +9,6 @@ find_package(Qt6 REQUIRED COMPONENTS Core Widgets Gui)
 find_package(ffmpeg REQUIRED)
 find_package(spdlog REQUIRED)
 find_package(SDL2 REQUIRED)
-#find_package(ZLIB REQUIRED)
 
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
@@ -71,6 +66,10 @@ file(GLOB PLAYER_COMMON_FILES
     "src/player/common/*.cpp"
     "src/player/common/*.h"
 )
+file(GLOB PLAYER_CONFIG_FILES
+    "src/player/config/*.cpp"
+    "src/player/config/*.h"
+)
 file(GLOB_RECURSE PLAYER_CODEC_FILES "src/player/codec/*.cpp" "src/player/codec/*.h")
 file(GLOB_RECURSE PLAYER_DEMUXER_FILES "src/player/demuxer/*.cpp" "src/player/demuxer/*.h")
 file(GLOB PLAYER_AUDIO_OUTPUT_FILES "src/player/audio/*.cpp" "src/player/audio/*.h")
@@ -91,6 +90,7 @@ endif()
 
 list(APPEND SRC_FILES ${PLAYER_MAIN_FILES})
 list(APPEND SRC_FILES ${PLAYER_COMMON_FILES})
+list(APPEND SRC_FILES ${PLAYER_CONFIG_FILES})
 list(APPEND SRC_FILES ${PLAYER_CODEC_FILES})
 list(APPEND SRC_FILES ${PLAYER_DEMUXER_FILES})
 list(APPEND SRC_FILES ${PLAYER_AUDIO_OUTPUT_FILES})

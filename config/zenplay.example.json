@@ -1,0 +1,99 @@
+{
+    "player": {
+        "audio": {
+            "buffer_size": 4096,
+            "sample_rate": 48000,
+            "channels": 2,
+            "volume": 1.0
+        },
+        "video": {
+            "decoder_priority": [
+                "h264_cuvid",
+                "h264_qsv",
+                "h264"
+            ],
+            "max_width": 3840,
+            "max_height": 2160
+        },
+        "sync": {
+            "method": "audio",
+            "correction_threshold_ms": 100
+        }
+    },
+    "render": {
+        "use_hardware_acceleration": true,
+        "backend_priority": [
+            "d3d11",
+            "opengl",
+            "software"
+        ],
+        "vsync": true,
+        "max_fps": 60,
+        "hardware": {
+            "allow_d3d11va": true,
+            "allow_dxva2": true,
+            "allow_fallback": true
+        }
+    },
+    "log": {
+        "level": "info",
+        "outputs": [
+            {
+                "type": "console",
+                "enabled": true,
+                "color": true
+            },
+            {
+                "type": "file",
+                "enabled": true,
+                "path": "logs/zenplay.log",
+                "max_size_mb": 100,
+                "max_files": 5,
+                "rotation": "daily"
+            }
+        ],
+        "module_levels": {
+            "player": "info",
+            "demuxer": "info",
+            "decoder": "info",
+            "renderer": "info"
+        }
+    },
+    "statistics": {
+        "enabled": true,
+        "report_interval_ms": 1000,
+        "metrics": [
+            "fps",
+            "bitrate",
+            "dropped_frames",
+            "audio_video_sync_offset"
+        ],
+        "outputs": [
+            {
+                "type": "console",
+                "enabled": true
+            },
+            {
+                "type": "file",
+                "enabled": false,
+                "path": "logs/statistics.csv"
+            }
+        ]
+    },
+    "network": {
+        "timeout_ms": 5000,
+        "buffer_size_kb": 1024,
+        "user_agent": "ZenPlay/1.0",
+        "proxy": {
+            "enabled": false,
+            "type": "http",
+            "host": "127.0.0.1",
+            "port": 7890
+        }
+    },
+    "cache": {
+        "enabled": true,
+        "max_size_mb": 500,
+        "directory": "cache/zenplay"
+    }
+}

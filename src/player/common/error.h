@@ -27,6 +27,8 @@ enum class ErrorCode : int {
   kInvalidParameter = 1,  ///< 无效参数
   kNotInitialized = 2,    ///< 未初始化
   kAlreadyRunning = 3,    ///< 已在运行中
+  kConfigError = 4,       ///< 配置错误
+  kFileError = 5,         ///< 文件操作错误
   kUnknown = 99,          ///< 未知错误
 
   // 解封装/IO 错误（100-199）
@@ -101,6 +103,10 @@ inline const char* ErrorCodeToString(ErrorCode code) {
       return "NotInitialized";
     case ErrorCode::kAlreadyRunning:
       return "AlreadyRunning";
+    case ErrorCode::kConfigError:
+      return "ConfigError";
+    case ErrorCode::kFileError:
+      return "FileError";
     case ErrorCode::kUnknown:
       return "Unknown";
 
