@@ -19,27 +19,27 @@ namespace zenplay {
  *
  * 使用示例：
  * @code
- * HRESULT hr = audio_client->Initialize(/* ... */);
-*if (FAILED(hr)) {
-  *return Result<void>::Err(MapHRESULT(hr));
-  *
-}
-*@endcode* /
+ * HRESULT hr = audio_client->Initialize();
+ * if (FAILED(hr)) {
+ *   return Result<void>::Err(MapHRESULT(hr));
+ * }
+ * @endcode
+ */
 
-    /**
-     * @brief 将 Windows HRESULT 映射到 ErrorCode
-     *
-     * @param hr Windows HRESULT 错误码
-     * @return 对应的 ErrorCode
-     *
-     * 映射规则：
-     * - S_OK → ErrorCode::kSuccess
-     * - E_INVALIDARG → ErrorCode::kInvalidParameter
-     * - E_OUTOFMEMORY → ErrorCode::kOutOfMemory
-     * - AUDCLNT_E_DEVICE_INVALIDATED → ErrorCode::kAudioDeviceNotFound
-     * - 其他 → ErrorCode::kAudioInitFailed
-     */
-    ErrorCode MapHRESULT(HRESULT hr);
+/**
+ * @brief 将 Windows HRESULT 映射到 ErrorCode
+ *
+ * @param hr Windows HRESULT 错误码
+ * @return 对应的 ErrorCode
+ *
+ * 映射规则：
+ * - S_OK → ErrorCode::kSuccess
+ * - E_INVALIDARG → ErrorCode::kInvalidParameter
+ * - E_OUTOFMEMORY → ErrorCode::kOutOfMemory
+ * - AUDCLNT_E_DEVICE_INVALIDATED → ErrorCode::kAudioDeviceNotFound
+ * - 其他 → ErrorCode::kAudioInitFailed
+ */
+ErrorCode MapHRESULT(HRESULT hr);
 
 /**
  * @brief 格式化 HRESULT 错误消息

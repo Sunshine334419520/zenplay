@@ -52,7 +52,7 @@ void ZenPlayer::CleanupResources() {
   }
 
   // 3. 最后关闭解封装器（底层资源）
-  if (demuxer_ && demuxer_->opened()) {
+  if (demuxer_) {
     demuxer_->Close();
   }
 
@@ -72,7 +72,7 @@ Result<void> ZenPlayer::Open(const std::string& url) {
   return demuxer_
       ->Open(url)
       // ✅ Step 1 成功：Demuxer 已打开
-      .AndThen([this](auto) -> Result<void> {
+      .AndThen([this]() -> Result<void> {
         // 尝试打开视频解码器（如果有视频流）
         AVStream* video_stream =
             demuxer_->findStreamByIndex(demuxer_->active_video_stream_index());
@@ -85,7 +85,7 @@ Result<void> ZenPlayer::Open(const std::string& url) {
         return Result<void>::Ok();
       })
       // ✅ Step 2 成功：Video Decoder 已打开（或跳过）
-      .AndThen([this](auto) -> Result<void> {
+      .AndThen([this]() -> Result<void> {
         // 尝试打开音频解码器（如果有音频流）
         AVStream* audio_stream =
             demuxer_->findStreamByIndex(demuxer_->active_audio_stream_index());
@@ -98,7 +98,7 @@ Result<void> ZenPlayer::Open(const std::string& url) {
         return Result<void>::Ok();
       })
       // ✅ Step 3 成功：Audio Decoder 已打开（或跳过）
-      .AndThen([this](auto) -> Result<void> {
+      .AndThen([this]() -> Result<void> {
         // 创建播放控制器
         MODULE_INFO(LOG_MODULE_PLAYER, "Creating playback controller...");
         playback_controller_ = std::make_unique<PlaybackController>(
@@ -153,7 +153,7 @@ Result<void> ZenPlayer::SetRenderWindow(void* window_handle,
     auto result = renderer_->Init(window_handle, width, height);
     if (!result.IsOk()) {
       MODULE_ERROR(LOG_MODULE_PLAYER, "Renderer initialization failed: {}",
-                   result.Error().message);
+                   result.Message());
       state_manager_->TransitionToError();
     } else {
       MODULE_INFO(LOG_MODULE_PLAYER, "Renderer initialized successfully");
@@ -236,7 +236,7 @@ Result<void> ZenPlayer::Pause() {
   }
 
   if (!state_manager_->IsPlaying()) {
-    return Result<void>::Err(ErrorCode::kInvalidState,
+    return Result<void>::Err(ErrorCode::kNotInitialized,
                              "Cannot pause: not in playing state");
   }
 

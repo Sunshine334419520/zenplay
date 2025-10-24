@@ -14,7 +14,7 @@ namespace zenplay {
 inline ErrorCode MapSDLError() {
   const char* error = SDL_GetError();
   if (!error || error[0] == '\0') {
-    return ErrorCode::kUnknownError;
+    return ErrorCode::kUnknown;
   }
 
   std::string error_str(error);
@@ -22,9 +22,9 @@ inline ErrorCode MapSDLError() {
   // Common SDL error patterns
   if (error_str.find("Video subsystem") != std::string::npos ||
       error_str.find("video driver") != std::string::npos) {
-    return ErrorCode::kRendererError;
+    return ErrorCode::kRenderError;
   } else if (error_str.find("No available video device") != std::string::npos) {
-    return ErrorCode::kDeviceNotFound;
+    return ErrorCode::kAudioDeviceNotFound;  // 或 kRenderError，取决于上下文
   } else if (error_str.find("Out of memory") != std::string::npos) {
     return ErrorCode::kOutOfMemory;
   } else if (error_str.find("Invalid") != std::string::npos ||
@@ -34,7 +34,7 @@ inline ErrorCode MapSDLError() {
     return ErrorCode::kNotSupported;
   }
 
-  return ErrorCode::kRendererError;
+  return ErrorCode::kRenderError;
 }
 
 // Format SDL error with context

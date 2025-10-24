@@ -54,7 +54,7 @@ PlaybackController::PlaybackController(
   auto audio_init_result = audio_player_->Init(audio_config);
   if (!audio_init_result.IsOk()) {
     MODULE_ERROR(LOG_MODULE_PLAYER, "Failed to initialize audio player: {}",
-                 audio_init_result.Error().message);
+                 audio_init_result.FullMessage());
     audio_player_.reset();
   }
 
@@ -164,7 +164,7 @@ Result<void> PlaybackController::Start() {
     auto audio_start_result = audio_player_->Start();
     if (!audio_start_result.IsOk()) {
       MODULE_ERROR(LOG_MODULE_PLAYER, "Failed to start AudioPlayer: {}",
-                   audio_start_result.Error().message);
+                   audio_start_result.FullMessage());
       // 即使音频启动失败，也继续启动视频（只有视频的场景）
     }
   }
@@ -175,7 +175,7 @@ Result<void> PlaybackController::Start() {
     auto video_start_result = video_player_->Start();
     if (!video_start_result.IsOk()) {
       MODULE_ERROR(LOG_MODULE_PLAYER, "Failed to start VideoPlayer: {}",
-                   video_start_result.Error().message);
+                   video_start_result.FullMessage());
       // 视频启动失败，如果有音频可以继续（只有音频的场景）
     } else {
       MODULE_INFO(LOG_MODULE_PLAYER, "VideoPlayer started successfully");

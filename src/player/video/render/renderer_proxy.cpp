@@ -14,8 +14,8 @@ RendererProxy::~RendererProxy() {
   }
 }
 
-bool RendererProxy::Init(void* window_handle, int width, int height) {
-  return EnsureUIThread<bool>([this, window_handle, width, height]() {
+Result<void> RendererProxy::Init(void* window_handle, int width, int height) {
+  return EnsureUIThread<Result<void>>([this, window_handle, width, height]() {
     return actual_renderer_->Init(window_handle, width, height);
   });
 }

@@ -2,7 +2,8 @@
 
 #ifdef _WIN32
 
-#include <comdef.h>  // For _com_error
+#include <audioclient.h>  // For AUDCLNT_E_* error codes
+#include <comdef.h>       // For _com_error
 
 #include <sstream>
 

@@ -59,7 +59,7 @@ Result<void> WasapiAudioOutput::Init(const AudioSpec& spec,
 
   // 2. 获取默认音频设备
   if (!GetDefaultAudioDevice()) {
-    return Result<void>::Err(ErrorCode::kDeviceNotFound,
+    return Result<void>::Err(ErrorCode::kAudioDeviceNotFound,
                              "Failed to get default audio device");
   }
 

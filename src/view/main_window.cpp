@@ -1,4 +1,4 @@
-#include "main_window.h"
+﻿#include "main_window.h"
 
 #include <QApplication>
 #include <QDebug>
@@ -360,13 +360,13 @@ void MainWindow::setMediaFile(const QString& filePath) {
   auto open_result = player_->Open(filePath.toStdString());
   if (!open_result.IsOk()) {
     QString errorMsg = QString::fromStdString("Failed to open media file:\n" +
-                                              open_result.Error().message);
+                                              open_result.Message());
     ZENPLAY_ERROR("Failed to open media file: {} (ErrorCode: {})",
-                  open_result.Error().message,
-                  static_cast<int>(open_result.Error().code));
+                  open_result.Message(),
+                  static_cast<int>(open_result.Code()));
     statusLabel_->setText(
         tr("Failed to open: %1")
-            .arg(QString::fromStdString(open_result.Error().message)));
+            .arg(QString::fromStdString(open_result.Message())));
     QMessageBox::critical(this, tr("Error"), errorMsg);
     updateControlBarState();  // 更新UI状态反映打开失败
     return;
@@ -381,13 +381,13 @@ void MainWindow::setMediaFile(const QString& filePath) {
                                                 videoWidget_->height());
   if (!render_result.IsOk()) {
     QString errorMsg = QString::fromStdString(
-        "Failed to initialize renderer:\n" + render_result.Error().message);
+        "Failed to initialize renderer:\n" + render_result.Message());
     ZENPLAY_ERROR("Failed to initialize renderer: {} (ErrorCode: {})",
-                  render_result.Error().message,
-                  static_cast<int>(render_result.Error().code));
+                  render_result.Message(),
+                  static_cast<int>(render_result.Code()));
     statusLabel_->setText(
         tr("Renderer error: %1")
-            .arg(QString::fromStdString(render_result.Error().message)));
+            .arg(QString::fromStdString(render_result.Message())));
     QMessageBox::critical(this, tr("Error"), errorMsg);
     updateControlBarState();  // 更新UI状态反映渲染器失败
     return;
@@ -414,11 +414,11 @@ void MainWindow::setMediaFile(const QString& filePath) {
     statusLabel_->setText(tr("Playing"));
   } else {
     ZENPLAY_ERROR("Auto-play failed: {} (ErrorCode: {})",
-                  play_result.Error().message,
-                  static_cast<int>(play_result.Error().code));
+                  play_result.Message(),
+                  static_cast<int>(play_result.Code()));
     statusLabel_->setText(
         tr("Play failed: %1")
-            .arg(QString::fromStdString(play_result.Error().message)));
+            .arg(QString::fromStdString(play_result.Message())));
   }
 
   // 只在最后统一更新一次控制栏状态
@@ -450,11 +450,11 @@ void MainWindow::togglePlayPause() {
         statusText = tr("Playing");
       } else {
         ZENPLAY_ERROR("Play failed: {} (ErrorCode: {})",
-                      play_result.Error().message,
-                      static_cast<int>(play_result.Error().code));
+                      play_result.Message(),
+                      static_cast<int>(play_result.Code()));
         statusLabel_->setText(
             tr("Play failed: %1")
-                .arg(QString::fromStdString(play_result.Error().message)));
+                .arg(QString::fromStdString(play_result.Message())));
       }
       break;
     }
@@ -467,11 +467,11 @@ void MainWindow::togglePlayPause() {
         statusText = tr("Paused");
       } else {
         ZENPLAY_ERROR("Pause failed: {} (ErrorCode: {})",
-                      pause_result.Error().message,
-                      static_cast<int>(pause_result.Error().code));
+                      pause_result.Message(),
+                      static_cast<int>(pause_result.Code()));
         statusLabel_->setText(
             tr("Pause failed: %1")
-                .arg(QString::fromStdString(pause_result.Error().message)));
+                .arg(QString::fromStdString(pause_result.Message())));
       }
       break;
     }

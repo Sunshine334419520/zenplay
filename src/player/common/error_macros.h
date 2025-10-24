@@ -25,12 +25,12 @@ namespace zenplay {
  * }
  * @endcode
  */
-#define RETURN_IF_ERROR(expr)           \
-  do {                                  \
-    auto __result = (expr);             \
-    if (!__result) {                    \
-      return __result.TransformError(); \
-    }                                   \
+#define RETURN_IF_ERROR(expr)                                        \
+  do {                                                               \
+    auto __result = (expr);                                          \
+    if (__result.IsErr()) {                                          \
+      return Result<void>::Err(__result.Code(), __result.Message()); \
+    }                                                                \
   } while (0)
 
 /**
@@ -47,14 +47,13 @@ namespace zenplay {
  * }
  * @endcode
  */
-#define RETURN_IF_ERROR_WITH(expr, message)                          \
-  do {                                                               \
-    auto __result = (expr);                                          \
-    if (!__result) {                                                 \
-      return Result<void>::Err(                                      \
-          __result.Error().Code(),                                   \
-          std::string(message) + ": " + __result.Error().Message()); \
-    }                                                                \
+#define RETURN_IF_ERROR_WITH(expr, message)                                   \
+  do {                                                                        \
+    auto __result = (expr);                                                   \
+    if (__result.IsErr()) {                                                   \
+      return Result<void>::Err(                                               \
+          __result.Code(), std::string(message) + ": " + __result.Message()); \
+    }                                                                         \
   } while (0)
 
 /**
@@ -117,11 +116,12 @@ namespace zenplay {
  * }
  * @endcode
  */
-#define ASSIGN_OR_RETURN(var_decl, expr)         \
-  auto __result_##__LINE__ = (expr);             \
-  if (!__result_##__LINE__) {                    \
-    return __result_##__LINE__.TransformError(); \
-  }                                              \
+#define ASSIGN_OR_RETURN(var_decl, expr)                     \
+  auto __result_##__LINE__ = (expr);                         \
+  if (__result_##__LINE__.IsErr()) {                         \
+    return Result<void>::Err(__result_##__LINE__.Code(),     \
+                             __result_##__LINE__.Message()); \
+  }                                                          \
   var_decl = __result_##__LINE__.Value()
 
 }  // namespace zenplay

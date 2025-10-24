@@ -2,6 +2,7 @@
 
 #include <windows.h>
 
+#include <audioclient.h>
 #include <gtest/gtest.h>
 
 #include "player/common/error.h"
@@ -129,25 +130,23 @@ TEST(Win32ErrorUtilsTest, HRESULTToResult_Success) {
 
 TEST(Win32ErrorUtilsTest, HRESULTToResult_InvalidArg) {
   auto result = HRESULTToResult(E_INVALIDARG, "Parameter validation");
-  EXPECT_FALSE(result);
-  EXPECT_EQ(result.Error().Code(), ErrorCode::kInvalidParameter);
-  EXPECT_NE(result.Error().Message().find("Parameter validation:"),
-            std::string::npos);
+  EXPECT_FALSE(result.IsOk());
+  EXPECT_EQ(result.Code(), ErrorCode::kInvalidParameter);
+  EXPECT_NE(result.Message().find("Parameter validation:"), std::string::npos);
 }
 
 TEST(Win32ErrorUtilsTest, HRESULTToResult_AudioNotInitialized) {
   auto result = HRESULTToResult(AUDCLNT_E_NOT_INITIALIZED, "Start playback");
-  EXPECT_FALSE(result);
-  EXPECT_EQ(result.Error().Code(), ErrorCode::kAudioNotInitialized);
-  EXPECT_NE(result.Error().Message().find("Start playback:"),
-            std::string::npos);
+  EXPECT_FALSE(result.IsOk());
+  EXPECT_EQ(result.Code(), ErrorCode::kAudioNotInitialized);
+  EXPECT_NE(result.Message().find("Start playback:"), std::string::npos);
 }
 
 TEST(Win32ErrorUtilsTest, HRESULTToResult_DeviceInvalidated) {
   auto result =
       HRESULTToResult(AUDCLNT_E_DEVICE_INVALIDATED, "Audio device check");
-  EXPECT_FALSE(result);
-  EXPECT_EQ(result.Error().Code(), ErrorCode::kAudioDeviceNotFound);
+  EXPECT_FALSE(result.IsOk());
+  EXPECT_EQ(result.Code(), ErrorCode::kAudioDeviceNotFound);
 }
 
 // ============================================================================
@@ -165,9 +164,9 @@ TEST(Win32ErrorIntegrationTest, AudioInitializeScenario) {
   };
 
   auto result = simulate_audio_init();
-  EXPECT_FALSE(result);
-  EXPECT_EQ(result.Error().Code(), ErrorCode::kAudioFormatNotSupported);
-  EXPECT_NE(result.Error().Message().find("Initialize audio client:"),
+  EXPECT_FALSE(result.IsOk());
+  EXPECT_EQ(result.Code(), ErrorCode::kAudioFormatNotSupported);
+  EXPECT_NE(result.Message().find("Initialize audio client:"),
             std::string::npos);
 }
 
@@ -182,8 +181,8 @@ TEST(Win32ErrorIntegrationTest, AudioStartScenario) {
   };
 
   auto result = simulate_audio_start();
-  EXPECT_FALSE(result);
-  EXPECT_EQ(result.Error().Code(), ErrorCode::kAudioNotInitialized);
+  EXPECT_FALSE(result.IsOk());
+  EXPECT_EQ(result.Code(), ErrorCode::kAudioNotInitialized);
 }
 
 TEST(Win32ErrorIntegrationTest, DeviceEnumerationScenario) {
@@ -197,8 +196,8 @@ TEST(Win32ErrorIntegrationTest, DeviceEnumerationScenario) {
   };
 
   auto result = simulate_device_enum();
-  EXPECT_FALSE(result);
-  EXPECT_EQ(result.Error().Code(), ErrorCode::kInvalidParameter);
+  EXPECT_FALSE(result.IsOk());
+  EXPECT_EQ(result.Code(), ErrorCode::kInvalidParameter);
 }
 
 }  // namespace zenplay

@@ -1,4 +1,4 @@
-#include <gtest/gtest.h>
+﻿#include <gtest/gtest.h>
 
 #include "player/common/error.h"
 #include "player/common/error_macros.h"
@@ -121,22 +121,22 @@ TEST(FFmpegErrorUtilsTest, FFmpegErrorToResult_Success) {
 
 TEST(FFmpegErrorUtilsTest, FFmpegErrorToResult_FileNotFound) {
   auto result = FFmpegErrorToResult(AVERROR(ENOENT), "Open input");
-  EXPECT_FALSE(result);
-  EXPECT_EQ(result.Error().Code(), ErrorCode::kFileNotFound);
-  EXPECT_NE(result.Error().Message().find("Open input:"), std::string::npos);
+  EXPECT_FALSE(result.IsOk());
+  EXPECT_EQ(result.Code(), ErrorCode::kFileNotFound);
+  EXPECT_NE(result.Message().find("Open input:"), std::string::npos);
 }
 
 TEST(FFmpegErrorUtilsTest, FFmpegErrorToResult_EOF) {
   auto result = FFmpegErrorToResult(AVERROR_EOF, "Read frame");
-  EXPECT_FALSE(result);
-  EXPECT_EQ(result.Error().Code(), ErrorCode::kEndOfFile);
-  EXPECT_NE(result.Error().Message().find("Read frame:"), std::string::npos);
+  EXPECT_FALSE(result.IsOk());
+  EXPECT_EQ(result.Code(), ErrorCode::kEndOfFile);
+  EXPECT_NE(result.Message().find("Read frame:"), std::string::npos);
 }
 
 TEST(FFmpegErrorUtilsTest, FFmpegErrorToResult_InvalidData) {
   auto result = FFmpegErrorToResult(AVERROR_INVALIDDATA, "Parse stream");
-  EXPECT_FALSE(result);
-  EXPECT_EQ(result.Error().Code(), ErrorCode::kInvalidFormat);
+  EXPECT_FALSE(result.IsOk());
+  EXPECT_EQ(result.Code(), ErrorCode::kInvalidFormat);
 }
 
 // ============================================================================
@@ -176,8 +176,8 @@ TEST(ErrorMacrosTest, RETURN_IF_ERROR_Propagate) {
   };
 
   auto result = test_fn();
-  EXPECT_FALSE(result);
-  EXPECT_EQ(result.Error().Code(), ErrorCode::kFileNotFound);
+  EXPECT_FALSE(result.IsOk());
+  EXPECT_EQ(result.Code(), ErrorCode::kFileNotFound);
 }
 
 TEST(ErrorMacrosTest, RETURN_IF_ERROR_WITH_AddContext) {
@@ -187,11 +187,11 @@ TEST(ErrorMacrosTest, RETURN_IF_ERROR_WITH_AddContext) {
   };
 
   auto result = test_fn();
-  EXPECT_FALSE(result);
-  EXPECT_EQ(result.Error().Code(), ErrorCode::kFileNotFound);
-  EXPECT_NE(result.Error().Message().find("Additional context"),
+  EXPECT_FALSE(result.IsOk());
+  EXPECT_EQ(result.Code(), ErrorCode::kFileNotFound);
+  EXPECT_NE(result.Message().find("Additional context"),
             std::string::npos);
-  EXPECT_NE(result.Error().Message().find("Test error"), std::string::npos);
+  EXPECT_NE(result.Message().find("Test error"), std::string::npos);
 }
 
 TEST(ErrorMacrosTest, BOOL_TO_RESULT_True) {
@@ -211,9 +211,9 @@ TEST(ErrorMacrosTest, BOOL_TO_RESULT_False) {
   };
 
   auto result = test_fn();
-  EXPECT_FALSE(result);
-  EXPECT_EQ(result.Error().Code(), ErrorCode::kInternalError);
-  EXPECT_EQ(result.Error().Message(), "Bool check failed");
+  EXPECT_FALSE(result.IsOk());
+  EXPECT_EQ(result.Code(), ErrorCode::kInternalError);
+  EXPECT_EQ(result.Message(), "Bool check failed");
 }
 
 TEST(ErrorMacrosTest, CHECK_NOT_NULL_NonNull) {
@@ -236,9 +236,9 @@ TEST(ErrorMacrosTest, CHECK_NOT_NULL_Null) {
   };
 
   auto result = test_fn();
-  EXPECT_FALSE(result);
-  EXPECT_EQ(result.Error().Code(), ErrorCode::kInvalidParameter);
-  EXPECT_EQ(result.Error().Message(), "Pointer is null");
+  EXPECT_FALSE(result.IsOk());
+  EXPECT_EQ(result.Code(), ErrorCode::kInvalidParameter);
+  EXPECT_EQ(result.Message(), "Pointer is null");
 }
 
 TEST(ErrorMacrosTest, ASSIGN_OR_RETURN_Success) {
@@ -260,8 +260,8 @@ TEST(ErrorMacrosTest, ASSIGN_OR_RETURN_Error) {
   };
 
   auto result = test_fn();
-  EXPECT_FALSE(result);
-  EXPECT_EQ(result.Error().Code(), ErrorCode::kInvalidParameter);
+  EXPECT_FALSE(result.IsOk());
+  EXPECT_EQ(result.Code(), ErrorCode::kInvalidParameter);
 }
 
 // ============================================================================
@@ -279,10 +279,10 @@ TEST(ErrorUtilsIntegrationTest, DemuxerOpenScenario) {
   };
 
   auto result = simulate_demuxer_open("non_existent_file.mp4");
-  EXPECT_FALSE(result);
-  EXPECT_EQ(result.Error().Code(), ErrorCode::kFileNotFound);
-  EXPECT_NE(result.Error().Message().find("Open input:"), std::string::npos);
-  EXPECT_NE(result.Error().Message().find("non_existent_file.mp4"),
+  EXPECT_FALSE(result.IsOk());
+  EXPECT_EQ(result.Code(), ErrorCode::kFileNotFound);
+  EXPECT_NE(result.Message().find("Open input:"), std::string::npos);
+  EXPECT_NE(result.Message().find("non_existent_file.mp4"),
             std::string::npos);
 }
 
@@ -297,8 +297,8 @@ TEST(ErrorUtilsIntegrationTest, DecoderOpenScenario) {
   };
 
   auto result = simulate_decoder_open();
-  EXPECT_FALSE(result);
-  EXPECT_EQ(result.Error().Code(), ErrorCode::kDecoderNotFound);
+  EXPECT_FALSE(result.IsOk());
+  EXPECT_EQ(result.Code(), ErrorCode::kDecoderNotFound);
 }
 
 TEST(ErrorUtilsIntegrationTest, MacroChainingScenario) {
@@ -316,8 +316,8 @@ TEST(ErrorUtilsIntegrationTest, MacroChainingScenario) {
   };
 
   auto result = workflow();
-  EXPECT_FALSE(result);
-  EXPECT_EQ(result.Error().Code(), ErrorCode::kNetworkTimeout);
+  EXPECT_FALSE(result.IsOk());
+  EXPECT_EQ(result.Code(), ErrorCode::kNetworkTimeout);
 }
 
 }  // namespace zenplay

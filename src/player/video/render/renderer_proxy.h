@@ -32,7 +32,7 @@ class RendererProxy : public Renderer {
   ~RendererProxy() override;
 
   // Renderer接口实现 - 所有方法都会确保在loki UI线程中执行
-  bool Init(void* window_handle, int width, int height) override;
+  Result<void> Init(void* window_handle, int width, int height) override;
   bool RenderFrame(AVFrame* frame) override;
   void Clear() override;
   void Present() override;

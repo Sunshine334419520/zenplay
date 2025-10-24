@@ -517,6 +517,9 @@ class Result<void> {
 
   bool IsErr() const { return error_code_ != ErrorCode::kSuccess; }
 
+  // 显式转换为 bool，用于测试断言 EXPECT_TRUE(result)
+  explicit operator bool() const { return IsOk(); }
+
   ErrorCode Code() const { return error_code_; }
 
   const std::string& Message() const { return message_; }
@@ -546,6 +549,21 @@ class Result<void> {
     }
     std::forward<F>(f)(error_code_);
     return Result<void>::Ok();
+  }
+
+  /**
+   * @brief 如果当前是 Err，应用映射函数到错误码
+   *
+   * 示例：
+   *   Result<void> r = SomeOperation()
+   *     .MapErr([](ErrorCode e) { return ErrorCode::kUnknown; });
+   */
+  template <typename F>
+  Result<void> MapErr(F&& f) {
+    if (IsOk()) {
+      return std::move(*this);
+    }
+    return Result<void>::Err(std::forward<F>(f)(error_code_), message_);
   }
 
   /**
