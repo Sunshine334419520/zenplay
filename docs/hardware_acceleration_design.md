@@ -1,9 +1,16 @@
 # 🚀 ZenPlay 硬件加速渲染设计方案
 
-**文档版本**: v1.0  
+**文档版本**: v1.1  
 **创建日期**: 2025-10-22  
+**最后更新**: 2025-10-24  
 **目标**: 实现 Windows D3D11 硬件加速渲染，支持零拷贝视频流水线  
 **状态**: 设计阶段 📋
+
+> **📝 更新说明（v1.1）**：  
+> 本文档已更新为使用 ZenPlay 现有的配置管理系统（`ConfigManager` 和 `GlobalConfig`）。  
+> - 推荐使用 `ConfigManager`：基于 Loki 任务派遣，支持自动保存、无锁访问  
+> - 备选使用 `GlobalConfig`：直接访问，使用读写锁保护  
+> 详见 [8.2 配置系统集成](#82-配置系统集成)
 
 ---
 
@@ -2443,7 +2450,7 @@ Renderer* Renderer::CreateRenderer() {
 // src/player/zen_player.h
 #pragma once
 
-#include "player/config/global_config.h"
+#include "player/config/config_manager.h"  // 使用 ConfigManager（推荐）
 #include "player/video/render/renderer.h"
 #include "player/codec/video_decoder.h"
 #include "player/codec/hw_decoder_context.h"
@@ -2495,9 +2502,9 @@ namespace zenplay {
 Result<void> ZenPlayer::Open(const std::string& url) {
   MODULE_INFO(LOG_MODULE_PLAYER, "Opening media: {}", url);
 
-  // 1. 加载配置
-  auto& config = GlobalConfig::Instance();
-  config.Load("config/zenplay.json");
+  // 1. 加载配置（使用 ConfigManager，自动保存）
+  auto& config = ConfigManager::Instance();
+  config.Load("config/zenplay.json");  // 同步加载
 
   // 2. 初始化渲染路径（硬件 or 软件）
   auto render_result = InitializeRenderPath();
@@ -2547,9 +2554,9 @@ Result<void> ZenPlayer::Open(const std::string& url) {
 }
 
 Result<void> ZenPlayer::InitializeRenderPath() {
-  auto& config = GlobalConfig::Instance();
+  auto& config = ConfigManager::Instance();
 
-  // 检查配置：是否启用硬件加速
+  // 检查配置：是否启用硬件加速（同步读取，派遣到 IO 线程）
   bool enable_hw = config.GetBool("render.use_hardware_acceleration", true);
   
   if (!enable_hw) {
@@ -2607,7 +2614,7 @@ Result<void> ZenPlayer::InitializeHardwarePath() {
   hw_decoder_ctx_->SetSharedD3D11Device(d3d11_device);
 
   // 5. 初始化硬件解码器上下文
-  auto& config = GlobalConfig::Instance();
+  auto& config = ConfigManager::Instance();
   bool allow_d3d11va = config.GetBool("render.hardware.allow_d3d11va", true);
   bool allow_dxva2 = config.GetBool("render.hardware.allow_dxva2", true);
   
@@ -2692,7 +2699,51 @@ bool ZenPlayer::CheckHardwareCapability() {
 
 ### 8.2 配置系统集成
 
-完整的配置文件示例（`config/zenplay.json`）：
+#### 使用现有的全局配置管理
+
+ZenPlay 已有完善的配置管理系统（`GlobalConfig` 和 `ConfigManager`），硬件加速直接集成：
+
+```cpp
+// 推荐：使用 ConfigManager（基于 Loki 任务派遣，自动保存）
+#include "player/config/config_manager.h"
+
+auto& config = ConfigManager::Instance();
+
+// 初始化（默认 Debounced 自动保存策略）
+config.Initialize();
+
+// 读取配置（同步，派遣到 IO 线程）
+bool use_hw = config.GetBool("render.use_hardware_acceleration", true);
+bool allow_d3d11va = config.GetBool("render.hardware.allow_d3d11va", true);
+bool allow_fallback = config.GetBool("render.hardware.allow_fallback", true);
+
+// 修改配置（同步）
+config.Set("render.use_hardware_acceleration", false);
+// 自动保存（根据策略，默认 1 秒后保存）
+
+// 或使用异步修改
+config.SetAsync("render.hardware.zero_copy", true, []() {
+  std::cout << "配置已更新并保存" << std::endl;
+});
+```
+
+```cpp
+// 备选：直接使用 GlobalConfig（如果不使用 Loki）
+#include "player/config/global_config.h"
+
+auto& config = GlobalConfig::Instance();
+
+// 读取配置（多线程安全，使用读写锁）
+bool use_hw = config.GetBool("render.use_hardware_acceleration", true);
+
+// 修改配置（需要手动保存）
+config.Set("render.use_hardware_acceleration", false);
+config.Save();  // ⚠️ 需要手动调用
+```
+
+#### 配置文件示例
+
+完整的配置文件（`config/zenplay.json`）：
 
 ```json
 {
@@ -2718,17 +2769,45 @@ bool ZenPlayer::CheckHardwareCapability() {
 }
 ```
 
-配置项说明：
+#### 配置项说明
 
 | 配置项 | 类型 | 默认值 | 说明 |
 |--------|------|--------|------|
-| `render.use_hardware_acceleration` | bool | true | 是否启用硬件加速 |
-| `render.backend_priority` | array | ["d3d11", ...] | 渲染后端优先级 |
-| `render.hardware.allow_d3d11va` | bool | true | 允许 D3D11VA（Windows 8+） |
-| `render.hardware.allow_dxva2` | bool | true | 允许 DXVA2（Windows 7） |
-| `render.hardware.allow_fallback` | bool | true | 硬件失败时降级到软件 |
-| `render.hardware.zero_copy` | bool | true | 启用零拷贝流水线 |
-| `render.hardware.debug_markers` | bool | false | 启用 D3D11 调试标记 |
+| `render.use_hardware_acceleration` | bool | true | 是否启用硬件加速渲染 |
+| `render.backend_priority` | array | ["d3d11", ...] | 渲染后端优先级列表 |
+| `render.hardware.allow_d3d11va` | bool | true | 允许 D3D11VA 硬件解码（Windows 8+） |
+| `render.hardware.allow_dxva2` | bool | true | 允许 DXVA2 硬件解码（Windows 7） |
+| `render.hardware.allow_fallback` | bool | true | 硬件失败时自动降级到软件渲染 |
+| `render.hardware.zero_copy` | bool | true | 启用零拷贝流水线（直接渲染硬件解码帧） |
+| `render.hardware.debug_markers` | bool | false | 启用 D3D11 调试标记（性能分析用） |
+
+#### ConfigManager 优势
+
+使用 `ConfigManager` 的好处：
+
+1. **自动保存**：默认防抖保存策略，批量修改只保存一次
+2. **无锁访问**：所有操作派遣到 IO 线程，无锁竞争
+3. **线程安全**：使用 Loki 任务派遣保证线程安全
+4. **配置监听**：支持配置变化回调（热重载）
+5. **异步支持**：提供异步 API，不阻塞主线程
+
+#### 配置策略选择
+
+```cpp
+// 方式 1：使用防抖自动保存（推荐，默认）
+config.Initialize(AutoSavePolicy::Debounced, std::chrono::milliseconds(1000));
+
+// 方式 2：立即保存（配置很少修改）
+config.Initialize(AutoSavePolicy::Immediate);
+
+// 方式 3：手动保存（需要精确控制）
+config.Initialize(AutoSavePolicy::Manual);
+config.Set("key", value);
+config.Save();  // 显式保存
+
+// 方式 4：退出时保存（测试环境）
+config.Initialize(AutoSavePolicy::OnExit);
+```
 
 ### 8.3 运行时切换渲染路径
 
@@ -2785,17 +2864,23 @@ void ZenPlayer::SwitchRenderPath(bool use_hardware) {
   MODULE_INFO(LOG_MODULE_PLAYER, "Render path switched successfully");
 }
 
-// 监听配置变化
+// 监听配置变化（热重载）
 void ZenPlayer::SetupConfigWatcher() {
-  auto& config = GlobalConfig::Instance();
+  auto& config = ConfigManager::Instance();
   
+  // 监听硬件加速开关配置
+  // 注意：回调在 IO 线程执行，需要派遣回主线程
   config_watcher_id_ = config.Watch("render.use_hardware_acceleration",
     [this](const ConfigValue& old_val, const ConfigValue& new_val) {
       bool old_hw = old_val.AsBool();
       bool new_hw = new_val.AsBool();
       
       if (old_hw != new_hw) {
-        this->SwitchRenderPath(new_hw);
+        // 派遣到主线程执行切换
+        loki::PostTask(loki::UI, FROM_HERE,
+          loki::BindOnceClosure([this, new_hw]() {
+            this->SwitchRenderPath(new_hw);
+          }));
       }
     });
 }
@@ -2976,11 +3061,15 @@ namespace benchmark {
 
 // 基准测试：软件解码 + 软件渲染
 static void BM_SoftwarePath(::benchmark::State& state) {
-  ZenPlayer player;
-  player.Open("test_videos/4k_h264.mp4");
+  // 初始化配置管理器
+  auto& config = ConfigManager::Instance();
+  config.Initialize(AutoSavePolicy::Manual);  // 测试时使用手动保存
   
   // 禁用硬件加速
-  GlobalConfig::Instance().Set("render.use_hardware_acceleration", false);
+  config.Set("render.use_hardware_acceleration", false);
+  
+  ZenPlayer player;
+  player.Open("test_videos/4k_h264.mp4");
   
   for (auto _ : state) {
     player.RenderNextFrame();
@@ -2992,11 +3081,15 @@ BENCHMARK(BM_SoftwarePath)->Unit(::benchmark::kMillisecond);
 
 // 基准测试：硬件解码 + 硬件渲染
 static void BM_HardwarePath(::benchmark::State& state) {
-  ZenPlayer player;
-  player.Open("test_videos/4k_h264.mp4");
+  // 初始化配置管理器
+  auto& config = ConfigManager::Instance();
+  config.Initialize(AutoSavePolicy::Manual);
   
   // 启用硬件加速
-  GlobalConfig::Instance().Set("render.use_hardware_acceleration", true);
+  config.Set("render.use_hardware_acceleration", true);
+  
+  ZenPlayer player;
+  player.Open("test_videos/4k_h264.mp4");
   
   for (auto _ : state) {
     player.RenderNextFrame();
@@ -3066,8 +3159,12 @@ namespace test {
 class HardwareAccelerationTest : public ::testing::Test {
  protected:
   void SetUp() override {
-    // 加载配置
-    GlobalConfig::Instance().Load("test_configs/hardware.json");
+    // 初始化配置管理器（测试时使用手动保存）
+    auto& config = ConfigManager::Instance();
+    config.Initialize(AutoSavePolicy::Manual);
+    
+    // 加载测试配置
+    config.Load("test_configs/hardware.json");
     
     // 创建播放器
     player_ = std::make_unique<ZenPlayer>();
@@ -3106,8 +3203,9 @@ TEST_F(HardwareAccelerationTest, OpenAndPlayH264) {
 
 TEST_F(HardwareAccelerationTest, FallbackToSoftware) {
   // 模拟硬件不可用
-  GlobalConfig::Instance().Set("render.hardware.allow_d3d11va", false);
-  GlobalConfig::Instance().Set("render.hardware.allow_dxva2", false);
+  auto& config = ConfigManager::Instance();
+  config.Set("render.hardware.allow_d3d11va", false);
+  config.Set("render.hardware.allow_dxva2", false);
   
   auto result = player_->Open("test_videos/h264_1080p.mp4");
   ASSERT_TRUE(result.IsOk());
@@ -3181,7 +3279,7 @@ Result<void> D3D11Context::Initialize(ID3D11Device* shared_device) {
 #endif
   
   // 检查配置
-  auto& config = GlobalConfig::Instance();
+  auto& config = ConfigManager::Instance();
   if (config.GetBool("render.hardware.debug_markers", false)) {
     // 启用性能标记（用于 GPU 性能分析）
     create_device_flags |= D3D11_CREATE_DEVICE_DEBUGGABLE;
@@ -3329,7 +3427,9 @@ Result<void> D3D11Renderer::RenderFrame(AVFrame* frame) {
 ```
 src/player/
 ├── config/
-│   ├── global_config.h              # 全局配置管理器
+│   ├── config_manager.h             # 配置管理器（Loki 派遣封装）
+│   ├── config_manager.cpp
+│   ├── global_config.h              # 全局配置核心
 │   └── global_config.cpp
 ├── codec/
 │   ├── hw_decoder_context.h         # 硬件解码器上下文
