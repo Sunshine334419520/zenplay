@@ -35,51 +35,6 @@
             "allow_fallback": true
         }
     },
-    "log": {
-        "level": "info",
-        "outputs": [
-            {
-                "type": "console",
-                "enabled": true,
-                "color": true
-            },
-            {
-                "type": "file",
-                "enabled": true,
-                "path": "logs/zenplay.log",
-                "max_size_mb": 100,
-                "max_files": 5,
-                "rotation": "daily"
-            }
-        ],
-        "module_levels": {
-            "player": "info",
-            "demuxer": "info",
-            "decoder": "info",
-            "renderer": "info"
-        }
-    },
-    "statistics": {
-        "enabled": true,
-        "report_interval_ms": 1000,
-        "metrics": [
-            "fps",
-            "bitrate",
-            "dropped_frames",
-            "audio_video_sync_offset"
-        ],
-        "outputs": [
-            {
-                "type": "console",
-                "enabled": true
-            },
-            {
-                "type": "file",
-                "enabled": false,
-                "path": "logs/statistics.csv"
-            }
-        ]
-    },
     "network": {
         "timeout_ms": 5000,
         "buffer_size_kb": 1024,
