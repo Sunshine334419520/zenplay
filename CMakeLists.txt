@@ -53,7 +53,50 @@ else()
     endif()
 endif()
 
+# ==================== ConfigManager 编译配置 ====================
+# 
+# ConfigManager 支持两种模式：
+# 1. Loki 派遣模式（推荐）：使用 Loki 任务派遣，无锁访问
+# 2. 直接调用模式：直接调用 GlobalConfig，使用读写锁
+#
+# 配置宏：
+# - ZENPLAY_CONFIG_USE_LOKI_DISPATCH: 是否使用 Loki 派遣（1=使用，0=不使用）
+# - ZENPLAY_CONFIG_USE_LOCK: 是否使用读写锁（1=使用，0=不使用）
+#
+# 推荐组合：
+# - LOKI_DISPATCH=1 + USE_LOCK=0：使用 Loki，IO 线程独占访问，无锁（性能最优）
+# - LOKI_DISPATCH=0 + USE_LOCK=1：不使用 Loki，多线程并发，有锁（兼容模式）
+
+# 检查是否添加了 Loki
 add_subdirectory(third_party/loki)
+
+# 配置 ConfigManager 模式
+if(TARGET loki)
+    # 有 Loki：使用派遣模式（推荐）
+    add_definitions(-DZENPLAY_CONFIG_USE_LOKI_DISPATCH=1)
+    add_definitions(-DZENPLAY_CONFIG_USE_LOCK=0)
+    message(STATUS "ConfigManager: 使用 Loki 派遣模式（无锁，性能最优）")
+    message(STATUS "  - ZENPLAY_CONFIG_USE_LOKI_DISPATCH=1")
+    message(STATUS "  - ZENPLAY_CONFIG_USE_LOCK=0")
+else()
+    # 无 Loki：使用直接调用模式（兼容）
+    add_definitions(-DZENPLAY_CONFIG_USE_LOKI_DISPATCH=0)
+    add_definitions(-DZENPLAY_CONFIG_USE_LOCK=1)
+    message(STATUS "ConfigManager: 使用直接调用模式（有锁）")
+    message(STATUS "  - ZENPLAY_CONFIG_USE_LOKI_DISPATCH=0")
+    message(STATUS "  - ZENPLAY_CONFIG_USE_LOCK=1")
+endif()
+
+# 可选：手动覆盖配置（用于调试或测试）
+# 取消下面的注释来强制使用特定模式：
+#
+# # 强制使用 Loki 派遣 + 无锁模式
+# add_definitions(-DZENPLAY_CONFIG_USE_LOKI_DISPATCH=1)
+# add_definitions(-DZENPLAY_CONFIG_USE_LOCK=0)
+#
+# # 强制使用直接调用 + 有锁模式（便于调试）
+# add_definitions(-DZENPLAY_CONFIG_USE_LOKI_DISPATCH=0)
+# add_definitions(-DZENPLAY_CONFIG_USE_LOCK=1)
 
 # src files
 file(GLOB SRC_FILES "src/main.cpp")

@@ -7,6 +7,7 @@
 #include "loki/src/main_message_loop_with_not_main_thread.h"
 #include "loki/src/threading/loki_thread.h"
 #include "player/common/log_manager.h"
+#include "player/config/config_manager.h"
 #include "player/stats/stats_initialization.h"
 #include "view/main_window.h"
 
@@ -20,6 +21,13 @@ class ZenPlayMessageLoopDelegate : public loki::MainMessageLoop::Delegate {
     subThreads->push_back({loki::ID::IO, "IO Thread"});
   }
 };
+
+void InitializeConfigSystem() {
+  player::ConfigManager::Instance().Initialize(
+      player::ConfigManager::AutoSavePolicy::Debounced,
+      std::chrono::milliseconds(500));
+  player::ConfigManager::Instance().Load();
+}
 
 int main(int argc, char* argv[]) {
   QApplication app(argc, argv);
@@ -80,12 +88,15 @@ int main(int argc, char* argv[]) {
   }
 
   // 初始化loki消息循环
-  ZENPLAY_DEBUG("Initializing Loki message loop");
+  ZENPLAY_INFO("Initializing Loki message loop");
   ZenPlayMessageLoopDelegate delegate;
   loki::MainMessageLoopWithNotMainThread message_loop_with_not_main_thread(
       &delegate);
   message_loop_with_not_main_thread.Initialize();
   message_loop_with_not_main_thread.Run();
+
+  ZENPLAY_INFO("Initializing configuration system");
+  InitializeConfigSystem();
 
   // 创建主窗口并显示
   ZENPLAY_INFO("Creating main window");

@@ -117,14 +117,12 @@ nlohmann::json GlobalConfig::CreateDefaultConfig() const {
 
 Result<void> GlobalConfig::Load(const std::string& config_path) {
 #if ZENPLAY_CONFIG_USE_LOCK
-
+  #if ZENPLAY_CONFIG_USE_LOCK
   std::unique_lock lock(mutex_);
-
 #endif
-
-  config_path_ = config_path;
-
-  std::ifstream file(config_path);
+#endif
+  
+  config_path_ = config_path;  std::ifstream file(config_path);
   if (!file.is_open()) {
     config_ = CreateDefaultConfig();
     return Result<void>::Ok();
@@ -145,14 +143,12 @@ Result<void> GlobalConfig::Load(const std::string& config_path) {
 
 Result<void> GlobalConfig::Save(const std::string& config_path) {
 #if ZENPLAY_CONFIG_USE_LOCK
-
+  #if ZENPLAY_CONFIG_USE_LOCK
   std::shared_lock lock(mutex_);
-
 #endif
-
-  std::string path = config_path.empty() ? config_path_ : config_path;
-
-  std::ofstream file(path);
+#endif
+  
+  std::string path = config_path.empty() ? config_path_ : config_path;  std::ofstream file(path);
   if (!file.is_open()) {
     return Result<void>::Err(ErrorCode::kFileError,
                              "Failed to open file for writing: " + path);
@@ -212,20 +208,16 @@ nlohmann::json* GlobalConfig::GetValuePtr(const std::string& key) {
 // ==================== Get 方法 ====================
 
 bool GlobalConfig::GetBool(const std::string& key, bool default_value) const {
-#if ZENPLAY_CONFIG_USE_LOCK
-
+  #if ZENPLAY_CONFIG_USE_LOCK
   std::shared_lock lock(mutex_);
-
 #endif
   const auto* value = GetValuePtr(key);
   return (value && value->is_boolean()) ? value->get<bool>() : default_value;
 }
 
 int GlobalConfig::GetInt(const std::string& key, int default_value) const {
-#if ZENPLAY_CONFIG_USE_LOCK
-
+  #if ZENPLAY_CONFIG_USE_LOCK
   std::shared_lock lock(mutex_);
-
 #endif
   const auto* value = GetValuePtr(key);
   return (value && value->is_number_integer()) ? value->get<int>()
@@ -234,10 +226,8 @@ int GlobalConfig::GetInt(const std::string& key, int default_value) const {
 
 int64_t GlobalConfig::GetInt64(const std::string& key,
                                int64_t default_value) const {
-#if ZENPLAY_CONFIG_USE_LOCK
-
+  #if ZENPLAY_CONFIG_USE_LOCK
   std::shared_lock lock(mutex_);
-
 #endif
   const auto* value = GetValuePtr(key);
   return (value && value->is_number_integer()) ? value->get<int64_t>()
@@ -246,10 +236,8 @@ int64_t GlobalConfig::GetInt64(const std::string& key,
 
 double GlobalConfig::GetDouble(const std::string& key,
                                double default_value) const {
-#if ZENPLAY_CONFIG_USE_LOCK
-
+  #if ZENPLAY_CONFIG_USE_LOCK
   std::shared_lock lock(mutex_);
-
 #endif
   const auto* value = GetValuePtr(key);
   return (value && value->is_number()) ? value->get<double>() : default_value;
@@ -257,10 +245,8 @@ double GlobalConfig::GetDouble(const std::string& key,
 
 std::string GlobalConfig::GetString(const std::string& key,
                                     const std::string& default_value) const {
-#if ZENPLAY_CONFIG_USE_LOCK
-
+  #if ZENPLAY_CONFIG_USE_LOCK
   std::shared_lock lock(mutex_);
-
 #endif
   const auto* value = GetValuePtr(key);
   return (value && value->is_string()) ? value->get<std::string>()
@@ -269,10 +255,8 @@ std::string GlobalConfig::GetString(const std::string& key,
 
 std::vector<std::string> GlobalConfig::GetStringArray(
     const std::string& key) const {
-#if ZENPLAY_CONFIG_USE_LOCK
-
+  #if ZENPLAY_CONFIG_USE_LOCK
   std::shared_lock lock(mutex_);
-
 #endif
   const auto* value = GetValuePtr(key);
 
@@ -288,10 +272,8 @@ std::vector<std::string> GlobalConfig::GetStringArray(
 }
 
 std::optional<ConfigValue> GlobalConfig::Get(const std::string& key) const {
-#if ZENPLAY_CONFIG_USE_LOCK
-
+  #if ZENPLAY_CONFIG_USE_LOCK
   std::shared_lock lock(mutex_);
-
 #endif
   const auto* value = GetValuePtr(key);
   if (value) {
@@ -301,10 +283,8 @@ std::optional<ConfigValue> GlobalConfig::Get(const std::string& key) const {
 }
 
 bool GlobalConfig::Has(const std::string& key) const {
-#if ZENPLAY_CONFIG_USE_LOCK
-
+  #if ZENPLAY_CONFIG_USE_LOCK
   std::shared_lock lock(mutex_);
-
 #endif
   return GetValuePtr(key) != nullptr;
 }
@@ -312,10 +292,8 @@ bool GlobalConfig::Has(const std::string& key) const {
 // ==================== Set 方法 ====================
 
 void GlobalConfig::Set(const std::string& key, bool value) {
-#if ZENPLAY_CONFIG_USE_LOCK
-
+  #if ZENPLAY_CONFIG_USE_LOCK
   std::unique_lock lock(mutex_);
-
 #endif
   auto* ptr = GetValuePtr(key);
   nlohmann::json old_value = *ptr;
@@ -324,10 +302,8 @@ void GlobalConfig::Set(const std::string& key, bool value) {
 }
 
 void GlobalConfig::Set(const std::string& key, int value) {
-#if ZENPLAY_CONFIG_USE_LOCK
-
+  #if ZENPLAY_CONFIG_USE_LOCK
   std::unique_lock lock(mutex_);
-
 #endif
   auto* ptr = GetValuePtr(key);
   nlohmann::json old_value = *ptr;
@@ -336,10 +312,8 @@ void GlobalConfig::Set(const std::string& key, int value) {
 }
 
 void GlobalConfig::Set(const std::string& key, int64_t value) {
-#if ZENPLAY_CONFIG_USE_LOCK
-
+  #if ZENPLAY_CONFIG_USE_LOCK
   std::unique_lock lock(mutex_);
-
 #endif
   auto* ptr = GetValuePtr(key);
   nlohmann::json old_value = *ptr;
@@ -348,10 +322,8 @@ void GlobalConfig::Set(const std::string& key, int64_t value) {
 }
 
 void GlobalConfig::Set(const std::string& key, double value) {
-#if ZENPLAY_CONFIG_USE_LOCK
-
+  #if ZENPLAY_CONFIG_USE_LOCK
   std::unique_lock lock(mutex_);
-
 #endif
   auto* ptr = GetValuePtr(key);
   nlohmann::json old_value = *ptr;
@@ -360,10 +332,8 @@ void GlobalConfig::Set(const std::string& key, double value) {
 }
 
 void GlobalConfig::Set(const std::string& key, const std::string& value) {
-#if ZENPLAY_CONFIG_USE_LOCK
-
+  #if ZENPLAY_CONFIG_USE_LOCK
   std::unique_lock lock(mutex_);
-
 #endif
   auto* ptr = GetValuePtr(key);
   nlohmann::json old_value = *ptr;
@@ -373,10 +343,8 @@ void GlobalConfig::Set(const std::string& key, const std::string& value) {
 
 void GlobalConfig::Set(const std::string& key,
                        const std::vector<std::string>& value) {
-#if ZENPLAY_CONFIG_USE_LOCK
-
+  #if ZENPLAY_CONFIG_USE_LOCK
   std::unique_lock lock(mutex_);
-
 #endif
   auto* ptr = GetValuePtr(key);
   nlohmann::json old_value = *ptr;
@@ -385,10 +353,8 @@ void GlobalConfig::Set(const std::string& key,
 }
 
 void GlobalConfig::Set(const std::string& key, const nlohmann::json& value) {
-#if ZENPLAY_CONFIG_USE_LOCK
-
+  #if ZENPLAY_CONFIG_USE_LOCK
   std::unique_lock lock(mutex_);
-
 #endif
   auto* ptr = GetValuePtr(key);
   nlohmann::json old_value = *ptr;
@@ -399,10 +365,8 @@ void GlobalConfig::Set(const std::string& key, const nlohmann::json& value) {
 // ==================== 监听器 ====================
 
 int GlobalConfig::Watch(const std::string& key, ConfigChangeCallback callback) {
-#if ZENPLAY_CONFIG_USE_LOCK
-
+  #if ZENPLAY_CONFIG_USE_LOCK
   std::unique_lock lock(mutex_);
-
 #endif
   int id = next_watcher_id_++;
   watchers_.push_back({id, key, std::move(callback)});
@@ -410,10 +374,8 @@ int GlobalConfig::Watch(const std::string& key, ConfigChangeCallback callback) {
 }
 
 void GlobalConfig::Unwatch(int watch_id) {
-#if ZENPLAY_CONFIG_USE_LOCK
-
+  #if ZENPLAY_CONFIG_USE_LOCK
   std::unique_lock lock(mutex_);
-
 #endif
   watchers_.erase(
       std::remove_if(watchers_.begin(), watchers_.end(),
@@ -457,19 +419,15 @@ Result<void> GlobalConfig::Validate(
 // ==================== 其他 ====================
 
 void GlobalConfig::ResetToDefaults() {
-#if ZENPLAY_CONFIG_USE_LOCK
-
+  #if ZENPLAY_CONFIG_USE_LOCK
   std::unique_lock lock(mutex_);
-
 #endif
   config_ = CreateDefaultConfig();
 }
 
 std::string GlobalConfig::Dump(int indent) const {
-#if ZENPLAY_CONFIG_USE_LOCK
-
+  #if ZENPLAY_CONFIG_USE_LOCK
   std::shared_lock lock(mutex_);
-
 #endif
   return config_.dump(indent);
 }
