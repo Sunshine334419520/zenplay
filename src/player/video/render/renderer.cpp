@@ -2,7 +2,7 @@
 
 #include <memory>
 
-#include "impl/sdl_renderer.h"
+#include "impl/sdl/sdl_renderer.h"
 #include "renderer_proxy.h"
 
 namespace zenplay {

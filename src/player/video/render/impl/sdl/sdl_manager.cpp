@@ -1,4 +1,4 @@
-#include "sdl_manager.h"
+#include "player/video/render/impl/sdl/sdl_manager.h"
 
 #include "player/common/log_manager.h"
 

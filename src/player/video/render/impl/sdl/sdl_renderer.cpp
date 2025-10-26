@@ -1,4 +1,4 @@
-#include "sdl_renderer.h"
+#include "player/video/render/impl/sdl/sdl_renderer.h"
 
 #include <cstring>
 
@@ -8,7 +8,7 @@ extern "C" {
 
 #include "player/common/log_manager.h"
 #include "player/common/sdl_error_utils.h"
-#include "sdl_manager.h"
+#include "player/video/render/impl/sdl/sdl_manager.h"
 
 #ifdef _WIN32
 #include <windows.h>
