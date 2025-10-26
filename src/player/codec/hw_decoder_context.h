@@ -13,18 +13,10 @@ extern "C" {
 #endif
 }
 
+#include "player/codec/hw_decoder_type.h"
 #include "player/common/error.h"
 
 namespace zenplay {
-
-/**
- * @brief 硬件解码器类型
- */
-enum class HWDecoderType {
-  kNone,     // 无硬件加速
-  kD3D11VA,  // Windows 8+ D3D11 视频加速
-  kDXVA2,    // Windows 7+ DirectX 视频加速
-};
 
 /**
  * @brief 硬件解码器上下文管理

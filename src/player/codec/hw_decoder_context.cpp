@@ -1,5 +1,6 @@
 #include "player/codec/hw_decoder_context.h"
 
+#include "player/codec/hw_decoder_type.h"
 #include "player/common/ffmpeg_error_utils.h"
 #include "player/common/log_manager.h"
 
@@ -19,29 +20,35 @@ Result<void> HWDecoderContext::Initialize(HWDecoderType decoder_type,
                                           int height) {
   decoder_type_ = decoder_type;
 
-#ifdef _WIN32
-  // 1. 创建硬件设备上下文
-  AVHWDeviceType hw_type;
-  if (decoder_type == HWDecoderType::kD3D11VA) {
-    hw_type = AV_HWDEVICE_TYPE_D3D11VA;
-    MODULE_INFO(LOG_MODULE_DECODER, "Initializing D3D11VA hardware decoder");
-  } else if (decoder_type == HWDecoderType::kDXVA2) {
-    hw_type = AV_HWDEVICE_TYPE_DXVA2;
-    MODULE_INFO(LOG_MODULE_DECODER, "Initializing DXVA2 hardware decoder");
-  } else {
-    return Result<void>::Err(ErrorCode::kNotSupported,
-                             "Unsupported hardware decoder type");
+  // 1. 检查平台支持
+  if (!HWDecoderTypeUtil::IsSupported(decoder_type)) {
+    return Result<void>::Err(
+        ErrorCode::kNotSupported,
+        std::string("Hardware decoder not supported on this platform: ") +
+            HWDecoderTypeUtil::GetName(decoder_type));
   }
 
-  // 创建设备上下文
+  // 2. 转换为 FFmpeg 硬件设备类型
+  AVHWDeviceType hw_type = HWDecoderTypeUtil::ToFFmpegType(decoder_type);
+  if (hw_type == AV_HWDEVICE_TYPE_NONE) {
+    return Result<void>::Err(ErrorCode::kNotSupported,
+                             "Invalid hardware decoder type");
+  }
+
+  MODULE_INFO(LOG_MODULE_DECODER, "Initializing {} hardware decoder",
+              HWDecoderTypeUtil::GetName(decoder_type));
+
+  // 3. 创建硬件设备上下文
   int ret =
       av_hwdevice_ctx_create(&hw_device_ctx_, hw_type, nullptr, nullptr, 0);
   if (ret < 0) {
     return FFmpegErrorToResult(ret, "Failed to create HW device context");
   }
 
-  // 2. 提取 D3D11 设备指针
+  // 4. 平台特定的初始化
+#ifdef _WIN32
   if (decoder_type == HWDecoderType::kD3D11VA) {
+    // 提取 D3D11 设备指针
     AVHWDeviceContext* device_ctx = (AVHWDeviceContext*)hw_device_ctx_->data;
     AVD3D11VADeviceContext* d3d11_ctx =
         (AVD3D11VADeviceContext*)device_ctx->hwctx;
@@ -51,21 +58,19 @@ Result<void> HWDecoderContext::Initialize(HWDecoderType decoder_type,
     MODULE_INFO(LOG_MODULE_DECODER, "D3D11 device: {}, context: {}",
                 (void*)d3d11_device_, (void*)d3d11_device_context_);
   }
+#endif
 
-  // 3. 创建硬件帧上下文
+  // 5. 创建硬件帧上下文
   auto frame_result = CreateHWFramesContext(width, height);
   if (!frame_result.IsOk()) {
     Cleanup();
     return frame_result;
   }
 
-  MODULE_INFO(LOG_MODULE_DECODER, "HW decoder context initialized: {}x{}",
-              width, height);
+  MODULE_INFO(LOG_MODULE_DECODER,
+              "HW decoder context initialized: {}x{}, type: {}", width, height,
+              HWDecoderTypeUtil::GetName(decoder_type));
   return Result<void>::Ok();
-#else
-  return Result<void>::Err(ErrorCode::kNotSupported,
-                           "Hardware decoding not supported on this platform");
-#endif
 }
 
 Result<void> HWDecoderContext::CreateHWFramesContext(int width, int height) {
