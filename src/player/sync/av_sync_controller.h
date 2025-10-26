@@ -321,6 +321,10 @@ class AVSyncController {
      *          = now - system_time - pause_duration
      *   自动排除了暂停时间，无需额外计算！
      */
+    // Undefine Windows macro to avoid conflict
+#ifdef GetCurrentTime
+#undef GetCurrentTime
+#endif
     double GetCurrentTime(std::chrono::steady_clock::time_point now) const {
       auto elapsed_ms =
           std::chrono::duration<double, std::milli>(now - system_time).count();

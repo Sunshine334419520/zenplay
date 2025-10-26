@@ -182,6 +182,15 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     loki
 )
 
+# Windows 平台添加 D3D11 和 DXGI 库（硬件加速渲染）
+if (WIN32)
+    target_link_libraries(${PROJECT_NAME} PRIVATE 
+        d3d11.lib
+        dxgi.lib
+        d3dcompiler.lib
+    )
+endif()
+
 target_include_directories(${PROJECT_NAME} PRIVATE 
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}/third_party

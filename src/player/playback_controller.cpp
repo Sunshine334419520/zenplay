@@ -638,6 +638,11 @@ void PlaybackController::StopAllThreads() {
   }
 }
 
+// Undefine Windows macro to avoid conflict with our method name
+#ifdef GetCurrentTime
+#undef GetCurrentTime
+#endif
+
 int64_t PlaybackController::GetCurrentTime() const {
   if (!av_sync_controller_) {
     return 0;

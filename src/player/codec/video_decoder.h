@@ -1,23 +1,33 @@
 #pragma once
 
 #include "player/codec/decode.h"
+#include "player/codec/hw_decoder_context.h"
 
 namespace zenplay {
 
 class VideoDecoder : public Decoder {
  public:
+  /**
+   * @brief 打开视频解码器（支持硬件加速）
+   *
+   * @param codec_params 编解码器参数
+   * @param options FFmpeg 选项
+   * @param hw_context 硬件解码上下文（可选，nullptr 表示软件解码）
+   * @return Result<void>
+   */
   Result<void> Open(AVCodecParameters* codec_params,
-                    AVDictionary** options = nullptr) {
-    if (!codec_params) {
-      return Result<void>::Err(ErrorCode::kInvalidParameter,
-                               "codec_params is null");
-    }
-    if (codec_params->codec_type != AVMEDIA_TYPE_VIDEO) {
-      return Result<void>::Err(ErrorCode::kInvalidParameter,
-                               "codec_params is not for video");
-    }
-    return Decoder::Open(codec_params, options);
-  }
+                    AVDictionary** options = nullptr,
+                    HWDecoderContext* hw_context = nullptr);
+
+  /**
+   * @brief 是否使用硬件解码
+   */
+  bool IsHardwareDecoding() const { return hw_context_ != nullptr; }
+
+  /**
+   * @brief 获取硬件上下文
+   */
+  HWDecoderContext* GetHWContext() const { return hw_context_; }
 
   int width() const {
     if (!codec_context_) {
@@ -46,6 +56,9 @@ class VideoDecoder : public Decoder {
     }
     return static_cast<AVPixelFormat>(codec_context_->pix_fmt);
   }
+
+ private:
+  HWDecoderContext* hw_context_ = nullptr;  // 不拥有所有权
 };
 
 }  // namespace zenplay
