@@ -186,9 +186,9 @@ std::vector<std::string> ConfigManager::GetStringArray(
 #endif
 }
 
-ConfigValue ConfigManager::Get(const std::string& key) const {
+std::optional<ConfigValue> ConfigManager::Get(const std::string& key) const {
 #if ZENPLAY_CONFIG_USE_LOKI_DISPATCH
-  return loki::Invoke<ConfigValue>(
+  return loki::Invoke<std::optional<ConfigValue>>(
       loki::IO, FROM_HERE, [this, &key]() { return config_->Get(key); });
 #else
   return config_->Get(key);

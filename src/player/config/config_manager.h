@@ -2,6 +2,7 @@
 
 #include <functional>
 #include <memory>
+#include <optional>
 
 #include "callback.h"
 #include "player/config/global_config.h"
@@ -155,7 +156,7 @@ class ConfigManager {
   /**
    * @brief 获取配置值
    */
-  ConfigValue Get(const std::string& key) const;
+  std::optional<ConfigValue> Get(const std::string& key) const;
 
   /**
    * @brief 检查配置键是否存在
