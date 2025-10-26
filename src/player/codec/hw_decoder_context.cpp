@@ -46,7 +46,7 @@ Result<void> HWDecoderContext::Initialize(HWDecoderType decoder_type,
   }
 
   // 4. 平台特定的初始化
-#ifdef _WIN32
+#ifdef OS_WIN
   if (decoder_type == HWDecoderType::kD3D11VA) {
     // 提取 D3D11 设备指针
     AVHWDeviceContext* device_ctx = (AVHWDeviceContext*)hw_device_ctx_->data;
@@ -83,7 +83,7 @@ Result<void> HWDecoderContext::CreateHWFramesContext(int width, int height) {
 
   AVHWFramesContext* frames_ctx = (AVHWFramesContext*)hw_frames_ctx_->data;
 
-#ifdef _WIN32
+#ifdef OS_WIN
   // 配置帧参数
   if (decoder_type_ == HWDecoderType::kD3D11VA) {
     frames_ctx->format = AV_PIX_FMT_D3D11;    // 硬件格式
@@ -149,7 +149,7 @@ AVPixelFormat HWDecoderContext::GetHWFormat(AVCodecContext* ctx,
   return AV_PIX_FMT_NONE;
 }
 
-#ifdef _WIN32
+#ifdef OS_WIN
 ID3D11Texture2D* HWDecoderContext::GetD3D11Texture(AVFrame* frame) {
   if (!frame || frame->format != AV_PIX_FMT_D3D11) {
     MODULE_ERROR(LOG_MODULE_DECODER, "Invalid frame format for D3D11 texture");
@@ -181,7 +181,7 @@ void HWDecoderContext::Cleanup() {
     hw_device_ctx_ = nullptr;
   }
 
-#ifdef _WIN32
+#ifdef OS_WIN
   d3d11_device_ = nullptr;
   d3d11_device_context_ = nullptr;
 #endif

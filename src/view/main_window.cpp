@@ -14,7 +14,7 @@
 
 #include "player/common/log_manager.h"
 
-#ifdef _WIN32
+#ifdef OS_WIN
 #include <windows.h>
 // #include <QWinTaskbarButton>  // Removed because it's not used and may not be
 // available
@@ -362,8 +362,7 @@ void MainWindow::setMediaFile(const QString& filePath) {
     QString errorMsg = QString::fromStdString("Failed to open media file:\n" +
                                               open_result.Message());
     ZENPLAY_ERROR("Failed to open media file: {} (ErrorCode: {})",
-                  open_result.Message(),
-                  static_cast<int>(open_result.Code()));
+                  open_result.Message(), static_cast<int>(open_result.Code()));
     statusLabel_->setText(
         tr("Failed to open: %1")
             .arg(QString::fromStdString(open_result.Message())));
@@ -413,8 +412,7 @@ void MainWindow::setMediaFile(const QString& filePath) {
     updateTimer_->start();
     statusLabel_->setText(tr("Playing"));
   } else {
-    ZENPLAY_ERROR("Auto-play failed: {} (ErrorCode: {})",
-                  play_result.Message(),
+    ZENPLAY_ERROR("Auto-play failed: {} (ErrorCode: {})", play_result.Message(),
                   static_cast<int>(play_result.Code()));
     statusLabel_->setText(
         tr("Play failed: %1")
@@ -449,8 +447,7 @@ void MainWindow::togglePlayPause() {
         updateTimer_->start();
         statusText = tr("Playing");
       } else {
-        ZENPLAY_ERROR("Play failed: {} (ErrorCode: {})",
-                      play_result.Message(),
+        ZENPLAY_ERROR("Play failed: {} (ErrorCode: {})", play_result.Message(),
                       static_cast<int>(play_result.Code()));
         statusLabel_->setText(
             tr("Play failed: %1")
@@ -789,7 +786,7 @@ VideoDisplayWidget::VideoDisplayWidget(QWidget* parent)
 }
 
 void* VideoDisplayWidget::getNativeHandle() {
-#ifdef _WIN32
+#ifdef OS_WIN
   return reinterpret_cast<void*>(winId());
 #else
   // For other platforms, you might need different handling

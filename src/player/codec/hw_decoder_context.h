@@ -1,13 +1,13 @@
 #pragma once
 
-#ifdef _WIN32
+#ifdef OS_WIN
 #include <d3d11.h>
 #endif
 
 extern "C" {
 #include <libavcodec/avcodec.h>
 #include <libavutil/hwcontext.h>
-#ifdef _WIN32
+#ifdef OS_WIN
 #include <libavutil/hwcontext_d3d11va.h>
 #include <libavutil/hwcontext_dxva2.h>
 #endif
@@ -53,7 +53,7 @@ class HWDecoderContext {
    */
   Result<void> ConfigureDecoder(AVCodecContext* codec_ctx);
 
-#ifdef _WIN32
+#ifdef OS_WIN
   /**
    * @brief 从硬件帧获取 D3D11 纹理
    *
@@ -93,7 +93,7 @@ class HWDecoderContext {
   static AVPixelFormat GetHWFormat(AVCodecContext* ctx,
                                    const AVPixelFormat* pix_fmts);
 
-#ifdef _WIN32
+#ifdef OS_WIN
   Result<void> CreateD3D11VAContext();
   Result<void> CreateDXVA2Context();
 #endif
@@ -104,7 +104,7 @@ class HWDecoderContext {
   AVBufferRef* hw_frames_ctx_ = nullptr;  // AVHWFramesContext
   AVPixelFormat hw_pix_fmt_ = AV_PIX_FMT_NONE;
 
-#ifdef _WIN32
+#ifdef OS_WIN
   // D3D11 设备（从 AVHWDeviceContext 提取）
   ID3D11Device* d3d11_device_ = nullptr;
   ID3D11DeviceContext* d3d11_device_context_ = nullptr;

@@ -10,7 +10,7 @@ extern "C" {
 #include "player/common/sdl_error_utils.h"
 #include "player/video/render/impl/sdl/sdl_manager.h"
 
-#ifdef _WIN32
+#ifdef OS_WIN
 #include <windows.h>
 
 #include <SDL_syswm.h>
@@ -180,7 +180,7 @@ bool SDLRenderer::CreateRenderer(void* window_handle) {
     return false;
   }
 
-#ifdef _WIN32
+#ifdef OS_WIN
   // Windows specific implementation
   HWND hwnd = static_cast<HWND>(window_handle);
   window_ = SDL_CreateWindowFrom(hwnd);

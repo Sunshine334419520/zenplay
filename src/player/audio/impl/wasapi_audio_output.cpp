@@ -1,6 +1,6 @@
 #include "wasapi_audio_output.h"
 
-#ifdef _WIN32
+#ifdef OS_WIN
 
 #include <cassert>
 #include <iostream>

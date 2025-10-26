@@ -1,7 +1,7 @@
 #pragma once
 
 // Windows 平台专用的 HRESULT 错误码映射工具
-#ifdef _WIN32
+#ifdef OS_WIN
 
 #include <windows.h>
 

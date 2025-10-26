@@ -62,21 +62,21 @@ bool HWDecoderTypeUtil::IsSupported(HWDecoderType type) {
     case HWDecoderType::kNone:
       return true;  // 软件解码总是支持
 
-#ifdef _WIN32
+#ifdef OS_WIN
     case HWDecoderType::kD3D11VA:
     case HWDecoderType::kDXVA2:
       // Windows 平台编译时支持，但运行时还需检查系统版本
       return true;
 #endif
 
-#ifdef __linux__
+#ifdef OS_LINUX
     case HWDecoderType::kVAAPI:
     case HWDecoderType::kVDPAU:
       // Linux 平台编译时支持
       return true;
 #endif
 
-#ifdef __APPLE__
+#ifdef OS_MAC
     case HWDecoderType::kVideoToolbox:
       // macOS/iOS 平台编译时支持
       return true;
@@ -98,19 +98,19 @@ bool HWDecoderTypeUtil::IsSupported(HWDecoderType type) {
 std::vector<HWDecoderType> HWDecoderTypeUtil::GetRecommendedTypes() {
   std::vector<HWDecoderType> types;
 
-#ifdef _WIN32
+#ifdef OS_WIN
   // Windows: 优先 D3D11VA，备选 DXVA2
   types.push_back(HWDecoderType::kD3D11VA);
   types.push_back(HWDecoderType::kDXVA2);
 #endif
 
-#ifdef __linux__
+#ifdef OS_LINUX
   // Linux: 优先 VA-API (Intel/AMD)，备选 VDPAU (NVIDIA)
   types.push_back(HWDecoderType::kVAAPI);
   types.push_back(HWDecoderType::kVDPAU);
 #endif
 
-#ifdef __APPLE__
+#ifdef OS_MAC
   // macOS/iOS: VideoToolbox
   types.push_back(HWDecoderType::kVideoToolbox);
 #endif

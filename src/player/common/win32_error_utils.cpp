@@ -1,6 +1,6 @@
 #include "player/common/win32_error_utils.h"
 
-#ifdef _WIN32
+#ifdef OS_WIN
 
 #include <audioclient.h>  // For AUDCLNT_E_* error codes
 #include <comdef.h>       // For _com_error

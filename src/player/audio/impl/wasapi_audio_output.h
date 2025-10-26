@@ -2,7 +2,11 @@
 
 #include "../audio_output.h"
 
-#ifdef _WIN32
+#pragma once
+
+// Windows Audio Session API (WASAPI) 音频输出实现
+// 仅在 Windows 平台可用
+#ifdef OS_WIN
 
 #include <atomic>
 #include <memory>

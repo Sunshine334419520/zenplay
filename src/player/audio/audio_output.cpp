@@ -1,10 +1,10 @@
 #include "player/audio/audio_output.h"
 
-#ifdef _WIN32
+#ifdef OS_WIN
 #include "player/audio/impl/wasapi_audio_output.h"
-#elif defined(__linux__)
+#elif defined(OS_LINUX)
 #include "player/audio/impl/alsa_audio_output.h"
-#elif defined(__APPLE__)
+#elif defined(OS_MAC)
 // TODO: 添加Core Audio实现
 #include "player/audio/impl/coreaudio_audio_output.h"
 #endif
@@ -14,11 +14,11 @@
 namespace zenplay {
 
 std::unique_ptr<AudioOutput> AudioOutput::Create() {
-#ifdef _WIN32
+#ifdef OS_WIN
   return std::make_unique<WasapiAudioOutput>();
-#elif defined(__linux__)
+#elif defined(OS_LINUX)
   return std::make_unique<AlsaAudioOutput>();
-#elif defined(__APPLE__)
+#elif defined(OS_MAC)
   // TODO: 实现Core Audio
   // return std::make_unique<CoreAudioOutput>();
   MODULE_WARN(LOG_MODULE_AUDIO, "Core Audio not implemented yet");
