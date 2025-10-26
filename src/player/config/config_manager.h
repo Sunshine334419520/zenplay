@@ -19,16 +19,16 @@
  *
  * 使用方式：
  * ```cpp
- * auto& config = ConfigManager::Instance();
+ * auto* config = ConfigManager::Instance();
  *
  * // 读取（同步，使用 Loki::Invoke）
- * int size = config.GetInt("player.audio.buffer_size", 4096);
+ * int size = config->GetInt("player.audio.buffer_size", 4096);
  *
  * // 写入（同步，使用 Loki::Invoke）
- * config.Set("player.audio.buffer_size", 8192);
+ * config->Set("player.audio.buffer_size", 8192);
  *
  * // 写入（异步，使用 Loki::PostTask）
- * config.SetAsync("player.audio.buffer_size", 8192, []() {
+ * config->SetAsync("player.audio.buffer_size", 8192, []() {
  *   // 写入完成回调
  * });
  * ```
@@ -65,7 +65,7 @@ class ConfigManager {
   /**
    * @brief 获取单例实例
    */
-  static ConfigManager& Instance();
+  static ConfigManager* Instance();
 
   // 禁用拷贝和赋值
   ConfigManager(const ConfigManager&) = delete;
@@ -278,7 +278,7 @@ class ConfigManager {
    */
   void CancelDebouncedSave();
 
-  GlobalConfig& config_;  // 引用 GlobalConfig 单例
+  GlobalConfig* config_ = nullptr;  // 指向 GlobalConfig 单例的指针
   bool initialized_ = false;
 
   // 自动保存配置

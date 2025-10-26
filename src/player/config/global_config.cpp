@@ -45,9 +45,9 @@ GlobalConfig::GlobalConfig() {
   config_ = CreateDefaultConfig();
 }
 
-GlobalConfig& GlobalConfig::Instance() {
+GlobalConfig* GlobalConfig::Instance() {
   static GlobalConfig instance;  // Meyer's Singleton（C++11 保证线程安全）
-  return instance;
+  return &instance;
 }
 
 nlohmann::json GlobalConfig::CreateDefaultConfig() const {

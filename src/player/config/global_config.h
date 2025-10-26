@@ -72,7 +72,7 @@ class GlobalConfig {
   /**
    * @brief 获取全局单例实例
    */
-  static GlobalConfig& Instance();
+  static GlobalConfig* Instance();
 
   // 禁用拷贝和赋值
   GlobalConfig(const GlobalConfig&) = delete;

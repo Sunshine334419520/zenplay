@@ -1,18 +1,18 @@
-#include "player/config/config_manager.h"
+﻿#include "player/config/config_manager.h"
 
 #include "location.h"
 
 namespace zenplay {
 
-ConfigManager& ConfigManager::Instance() {
+ConfigManager* ConfigManager::Instance() {
   static ConfigManager instance;
-  return instance;
+  return &instance;
 }
 
 ConfigManager::~ConfigManager() {
   // 如果策略是 OnExit，则在析构时保存
-  if (auto_save_policy_ == AutoSavePolicy::OnExit && initialized_) {
-    config_.Save();
+  if (auto_save_policy_ == AutoSavePolicy::OnExit && initialized_ && config_) {
+    config_->Save();
   }
 }
 
@@ -42,7 +42,7 @@ void ConfigManager::TriggerAutoSave() {
   switch (auto_save_policy_) {
     case AutoSavePolicy::Immediate:
       // 立即保存
-      config_.Save();
+      config_->Save();
       break;
 
     case AutoSavePolicy::Debounced:
@@ -52,7 +52,7 @@ void ConfigManager::TriggerAutoSave() {
       loki::PostDelayedTask(loki::IO, FROM_HERE,
                             loki::BindOnceClosure([this]() {
                               if (save_pending_) {
-                                config_.Save();
+                                config_->Save();
                                 save_pending_ = false;
                               }
                             }),
@@ -80,9 +80,9 @@ Result<void> ConfigManager::Load(const std::string& config_path) {
   // 使用 Loki::Invoke 同步调用
   return loki::Invoke<Result<void>>(
       loki::IO, FROM_HERE,
-      [this, &config_path]() { return config_.Load(config_path); });
+      [this, &config_path]() { return config_->Load(config_path); });
 #else
-  return config_.Load(config_path);
+  return config_->Load(config_path);
 #endif
 }
 
@@ -90,26 +90,26 @@ Result<void> ConfigManager::Save() {
 #if ZENPLAY_CONFIG_USE_LOKI_DISPATCH
   // 使用 Loki::Invoke 同步调用
   return loki::Invoke<Result<void>>(loki::IO, FROM_HERE,
-                                    [this]() { return config_.Save(); });
+                                    [this]() { return config_->Save(); });
 #else
-  return config_.Save();
+  return config_->Save();
 #endif
 }
 
 void ConfigManager::SaveAsync(std::function<void(Result<void>)> callback) {
 #if ZENPLAY_CONFIG_USE_LOKI_DISPATCH
-  // 使用 Loki::PostTaskAndReplyWithResult 异步调用并返回结果
+  // 使用 Loki 异步保存
   if (callback) {
-    loki::PostTaskAndReplyWithResult<Result<void>, Result<void>>(
+    loki::PostTaskAndReply(
         loki::IO, FROM_HERE,
-        loki::BindOnceCallback([this]() { return config_.Save(); }),
-        loki::BindOnceCallback(callback));
+        loki::BindOnceClosure([this]() { config_->Save(); }),
+        loki::BindOnceClosure([callback]() { callback(Result<void>::Ok()); }));
   } else {
     loki::PostTask(loki::IO, FROM_HERE,
-                   loki::BindOnceClosure([this]() { config_.Save(); }));
+                   loki::BindOnceClosure([this]() { config_->Save(); }));
   }
 #else
-  auto result = config_.Save();
+  auto result = config_->Save();
   if (callback) {
     callback(result);
   }
@@ -122,20 +122,20 @@ bool ConfigManager::GetBool(const std::string& key, bool default_value) const {
 #if ZENPLAY_CONFIG_USE_LOKI_DISPATCH
   // 使用 Loki::Invoke 同步调用
   return loki::Invoke<bool>(loki::IO, FROM_HERE, [this, &key, default_value]() {
-    return config_.GetBool(key, default_value);
+    return config_->GetBool(key, default_value);
   });
 #else
-  return config_.GetBool(key, default_value);
+  return config_->GetBool(key, default_value);
 #endif
 }
 
 int ConfigManager::GetInt(const std::string& key, int default_value) const {
 #if ZENPLAY_CONFIG_USE_LOKI_DISPATCH
   return loki::Invoke<int>(loki::IO, FROM_HERE, [this, &key, default_value]() {
-    return config_.GetInt(key, default_value);
+    return config_->GetInt(key, default_value);
   });
 #else
-  return config_.GetInt(key, default_value);
+  return config_->GetInt(key, default_value);
 #endif
 }
 
@@ -144,10 +144,10 @@ int64_t ConfigManager::GetInt64(const std::string& key,
 #if ZENPLAY_CONFIG_USE_LOKI_DISPATCH
   return loki::Invoke<int64_t>(loki::IO, FROM_HERE,
                                [this, &key, default_value]() {
-                                 return config_.GetInt64(key, default_value);
+                                 return config_->GetInt64(key, default_value);
                                });
 #else
-  return config_.GetInt64(key, default_value);
+  return config_->GetInt64(key, default_value);
 #endif
 }
 
@@ -156,10 +156,10 @@ double ConfigManager::GetDouble(const std::string& key,
 #if ZENPLAY_CONFIG_USE_LOKI_DISPATCH
   return loki::Invoke<double>(loki::IO, FROM_HERE,
                               [this, &key, default_value]() {
-                                return config_.GetDouble(key, default_value);
+                                return config_->GetDouble(key, default_value);
                               });
 #else
-  return config_.GetDouble(key, default_value);
+  return config_->GetDouble(key, default_value);
 #endif
 }
 
@@ -168,10 +168,10 @@ std::string ConfigManager::GetString(const std::string& key,
 #if ZENPLAY_CONFIG_USE_LOKI_DISPATCH
   return loki::Invoke<std::string>(
       loki::IO, FROM_HERE, [this, &key, &default_value]() {
-        return config_.GetString(key, default_value);
+        return config_->GetString(key, default_value);
       });
 #else
-  return config_.GetString(key, default_value);
+  return config_->GetString(key, default_value);
 #endif
 }
 
@@ -180,27 +180,27 @@ std::vector<std::string> ConfigManager::GetStringArray(
 #if ZENPLAY_CONFIG_USE_LOKI_DISPATCH
   return loki::Invoke<std::vector<std::string>>(
       loki::IO, FROM_HERE,
-      [this, &key]() { return config_.GetStringArray(key); });
+      [this, &key]() { return config_->GetStringArray(key); });
 #else
-  return config_.GetStringArray(key);
+  return config_->GetStringArray(key);
 #endif
 }
 
 ConfigValue ConfigManager::Get(const std::string& key) const {
 #if ZENPLAY_CONFIG_USE_LOKI_DISPATCH
-  return loki::Invoke<ConfigValue>(loki::IO, FROM_HERE,
-                                   [this, &key]() { return config_.Get(key); });
+  return loki::Invoke<ConfigValue>(
+      loki::IO, FROM_HERE, [this, &key]() { return config_->Get(key); });
 #else
-  return config_.Get(key);
+  return config_->Get(key);
 #endif
 }
 
 bool ConfigManager::Has(const std::string& key) const {
 #if ZENPLAY_CONFIG_USE_LOKI_DISPATCH
   return loki::Invoke<bool>(loki::IO, FROM_HERE,
-                            [this, &key]() { return config_.Has(key); });
+                            [this, &key]() { return config_->Has(key); });
 #else
-  return config_.Has(key);
+  return config_->Has(key);
 #endif
 }
 
@@ -209,11 +209,11 @@ bool ConfigManager::Has(const std::string& key) const {
 void ConfigManager::Set(const std::string& key, bool value) {
 #if ZENPLAY_CONFIG_USE_LOKI_DISPATCH
   loki::Invoke<void>(loki::IO, FROM_HERE, [this, &key, value]() {
-    config_.Set(key, value);
+    config_->Set(key, value);
     TriggerAutoSave();  // 触发自动保存
   });
 #else
-  config_.Set(key, value);
+  config_->Set(key, value);
   TriggerAutoSave();
 #endif
 }
@@ -221,11 +221,11 @@ void ConfigManager::Set(const std::string& key, bool value) {
 void ConfigManager::Set(const std::string& key, int value) {
 #if ZENPLAY_CONFIG_USE_LOKI_DISPATCH
   loki::Invoke<void>(loki::IO, FROM_HERE, [this, &key, value]() {
-    config_.Set(key, value);
+    config_->Set(key, value);
     TriggerAutoSave();  // 触发自动保存
   });
 #else
-  config_.Set(key, value);
+  config_->Set(key, value);
   TriggerAutoSave();
 #endif
 }
@@ -233,11 +233,11 @@ void ConfigManager::Set(const std::string& key, int value) {
 void ConfigManager::Set(const std::string& key, int64_t value) {
 #if ZENPLAY_CONFIG_USE_LOKI_DISPATCH
   loki::Invoke<void>(loki::IO, FROM_HERE, [this, &key, value]() {
-    config_.Set(key, value);
+    config_->Set(key, value);
     TriggerAutoSave();  // 触发自动保存
   });
 #else
-  config_.Set(key, value);
+  config_->Set(key, value);
   TriggerAutoSave();
 #endif
 }
@@ -245,11 +245,11 @@ void ConfigManager::Set(const std::string& key, int64_t value) {
 void ConfigManager::Set(const std::string& key, double value) {
 #if ZENPLAY_CONFIG_USE_LOKI_DISPATCH
   loki::Invoke<void>(loki::IO, FROM_HERE, [this, &key, value]() {
-    config_.Set(key, value);
+    config_->Set(key, value);
     TriggerAutoSave();  // 触发自动保存
   });
 #else
-  config_.Set(key, value);
+  config_->Set(key, value);
   TriggerAutoSave();
 #endif
 }
@@ -257,11 +257,11 @@ void ConfigManager::Set(const std::string& key, double value) {
 void ConfigManager::Set(const std::string& key, const std::string& value) {
 #if ZENPLAY_CONFIG_USE_LOKI_DISPATCH
   loki::Invoke<void>(loki::IO, FROM_HERE, [this, &key, &value]() {
-    config_.Set(key, value);
+    config_->Set(key, value);
     TriggerAutoSave();  // 触发自动保存
   });
 #else
-  config_.Set(key, value);
+  config_->Set(key, value);
   TriggerAutoSave();
 #endif
 }
@@ -270,11 +270,11 @@ void ConfigManager::Set(const std::string& key,
                         const std::vector<std::string>& value) {
 #if ZENPLAY_CONFIG_USE_LOKI_DISPATCH
   loki::Invoke<void>(loki::IO, FROM_HERE, [this, &key, &value]() {
-    config_.Set(key, value);
+    config_->Set(key, value);
     TriggerAutoSave();  // 触发自动保存
   });
 #else
-  config_.Set(key, value);
+  config_->Set(key, value);
   TriggerAutoSave();
 #endif
 }
@@ -289,19 +289,19 @@ void ConfigManager::SetAsync(const std::string& key,
   if (callback) {
     loki::PostTaskAndReply(loki::IO, FROM_HERE,
                            loki::BindOnceClosure([this, key, value]() {
-                             config_.Set(key, value);
+                             config_->Set(key, value);
                              TriggerAutoSave();  // 触发自动保存
                            }),
                            loki::BindOnceClosure(callback));
   } else {
     loki::PostTask(loki::IO, FROM_HERE,
                    loki::BindOnceClosure([this, key, value]() {
-                     config_.Set(key, value);
+                     config_->Set(key, value);
                      TriggerAutoSave();  // 触发自动保存
                    }));
   }
 #else
-  config_.Set(key, value);
+  config_->Set(key, value);
   TriggerAutoSave();
   if (callback) {
     callback();
@@ -316,19 +316,19 @@ void ConfigManager::SetAsync(const std::string& key,
   if (callback) {
     loki::PostTaskAndReply(loki::IO, FROM_HERE,
                            loki::BindOnceClosure([this, key, value]() {
-                             config_.Set(key, value);
+                             config_->Set(key, value);
                              TriggerAutoSave();  // 触发自动保存
                            }),
                            loki::BindOnceClosure(callback));
   } else {
     loki::PostTask(loki::IO, FROM_HERE,
                    loki::BindOnceClosure([this, key, value]() {
-                     config_.Set(key, value);
+                     config_->Set(key, value);
                      TriggerAutoSave();  // 触发自动保存
                    }));
   }
 #else
-  config_.Set(key, value);
+  config_->Set(key, value);
   TriggerAutoSave();
   if (callback) {
     callback();
@@ -343,19 +343,19 @@ void ConfigManager::SetAsync(const std::string& key,
   if (callback) {
     loki::PostTaskAndReply(loki::IO, FROM_HERE,
                            loki::BindOnceClosure([this, key, value]() {
-                             config_.Set(key, value);
+                             config_->Set(key, value);
                              TriggerAutoSave();  // 触发自动保存
                            }),
                            loki::BindOnceClosure(callback));
   } else {
     loki::PostTask(loki::IO, FROM_HERE,
                    loki::BindOnceClosure([this, key, value]() {
-                     config_.Set(key, value);
+                     config_->Set(key, value);
                      TriggerAutoSave();  // 触发自动保存
                    }));
   }
 #else
-  config_.Set(key, value);
+  config_->Set(key, value);
   TriggerAutoSave();
   if (callback) {
     callback();
@@ -370,19 +370,19 @@ void ConfigManager::SetAsync(const std::string& key,
   if (callback) {
     loki::PostTaskAndReply(loki::IO, FROM_HERE,
                            loki::BindOnceClosure([this, key, value]() {
-                             config_.Set(key, value);
+                             config_->Set(key, value);
                              TriggerAutoSave();  // 触发自动保存
                            }),
                            loki::BindOnceClosure(callback));
   } else {
     loki::PostTask(loki::IO, FROM_HERE,
                    loki::BindOnceClosure([this, key, value]() {
-                     config_.Set(key, value);
+                     config_->Set(key, value);
                      TriggerAutoSave();  // 触发自动保存
                    }));
   }
 #else
-  config_.Set(key, value);
+  config_->Set(key, value);
   TriggerAutoSave();
   if (callback) {
     callback();
@@ -397,19 +397,19 @@ void ConfigManager::SetAsync(const std::string& key,
   if (callback) {
     loki::PostTaskAndReply(loki::IO, FROM_HERE,
                            loki::BindOnceClosure([this, key, value]() {
-                             config_.Set(key, value);
+                             config_->Set(key, value);
                              TriggerAutoSave();  // 触发自动保存
                            }),
                            loki::BindOnceClosure(callback));
   } else {
     loki::PostTask(loki::IO, FROM_HERE,
                    loki::BindOnceClosure([this, key, value]() {
-                     config_.Set(key, value);
+                     config_->Set(key, value);
                      TriggerAutoSave();  // 触发自动保存
                    }));
   }
 #else
-  config_.Set(key, value);
+  config_->Set(key, value);
   TriggerAutoSave();
   if (callback) {
     callback();
@@ -424,19 +424,19 @@ void ConfigManager::SetAsync(const std::string& key,
   if (callback) {
     loki::PostTaskAndReply(loki::IO, FROM_HERE,
                            loki::BindOnceClosure([this, key, value]() {
-                             config_.Set(key, value);
+                             config_->Set(key, value);
                              TriggerAutoSave();  // 触发自动保存
                            }),
                            loki::BindOnceClosure(callback));
   } else {
     loki::PostTask(loki::IO, FROM_HERE,
                    loki::BindOnceClosure([this, key, value]() {
-                     config_.Set(key, value);
+                     config_->Set(key, value);
                      TriggerAutoSave();  // 触发自动保存
                    }));
   }
 #else
-  config_.Set(key, value);
+  config_->Set(key, value);
   TriggerAutoSave();
   if (callback) {
     callback();
@@ -451,19 +451,19 @@ int ConfigManager::Watch(
     std::function<void(const ConfigValue&, const ConfigValue&)> callback) {
 #if ZENPLAY_CONFIG_USE_LOKI_DISPATCH
   return loki::Invoke<int>(loki::IO, FROM_HERE, [this, &key, &callback]() {
-    return config_.Watch(key, callback);
+    return config_->Watch(key, callback);
   });
 #else
-  return config_.Watch(key, callback);
+  return config_->Watch(key, callback);
 #endif
 }
 
 void ConfigManager::Unwatch(int watcher_id) {
 #if ZENPLAY_CONFIG_USE_LOKI_DISPATCH
   loki::Invoke<void>(loki::IO, FROM_HERE,
-                     [this, watcher_id]() { config_.Unwatch(watcher_id); });
+                     [this, watcher_id]() { config_->Unwatch(watcher_id); });
 #else
-  config_.Unwatch(watcher_id);
+  config_->Unwatch(watcher_id);
 #endif
 }
 
@@ -475,9 +475,9 @@ Result<void> ConfigManager::Validate(
 #if ZENPLAY_CONFIG_USE_LOKI_DISPATCH
   return loki::Invoke<Result<void>>(
       loki::IO, FROM_HERE,
-      [this, &key, &validator]() { return config_.Validate(key, validator); });
+      [this, &key, &validator]() { return config_->Validate(key, validator); });
 #else
-  return config_.Validate(key, validator);
+  return config_->Validate(key, validator);
 #endif
 }
 

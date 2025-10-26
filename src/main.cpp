@@ -23,10 +23,9 @@ class ZenPlayMessageLoopDelegate : public loki::MainMessageLoop::Delegate {
 };
 
 void InitializeConfigSystem() {
-  player::ConfigManager::Instance().Initialize(
-      player::ConfigManager::AutoSavePolicy::Debounced,
-      std::chrono::milliseconds(500));
-  player::ConfigManager::Instance().Load();
+  zenplay::ConfigManager::Instance()->Initialize(
+      zenplay::AutoSavePolicy::Debounced, std::chrono::milliseconds(500));
+  zenplay::ConfigManager::Instance()->Load();
 }
 
 int main(int argc, char* argv[]) {
