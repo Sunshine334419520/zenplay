@@ -5,11 +5,13 @@
 #include <thread>
 
 #include "player/codec/audio_decoder.h"
+#include "player/codec/hw_decoder_context.h"
 #include "player/codec/video_decoder.h"
 #include "player/common/log_manager.h"
 #include "player/common/player_state_manager.h"
 #include "player/demuxer/demuxer.h"
 #include "player/playback_controller.h"
+#include "player/video/render/render_path_selector.h"
 #include "player/video/render/renderer.h"
 
 namespace zenplay {
@@ -23,7 +25,8 @@ ZenPlayer::ZenPlayer()
     : demuxer_(std::make_unique<Demuxer>()),
       video_decoder_(std::make_unique<VideoDecoder>()),
       audio_decoder_(std::make_unique<AudioDecoder>()),
-      renderer_(std::unique_ptr<Renderer>(Renderer::CreateRenderer())),
+      renderer_(nullptr),  // 延迟创建，在 Open() 中根据视频流信息选择
+      hw_decoder_context_(nullptr),
       state_manager_(std::make_shared<PlayerStateManager>()) {
   MODULE_INFO(LOG_MODULE_PLAYER,
               "ZenPlayer created with unified state management");
@@ -43,7 +46,7 @@ void ZenPlayer::CleanupResources() {
     playback_controller_.reset();
   }
 
-  // 2. 关闭解码器（依赖解封装器）
+  // 2. 关闭解码器（依赖硬件上下文和解封装器）
   if (audio_decoder_ && audio_decoder_->opened()) {
     audio_decoder_->Close();
   }
@@ -51,12 +54,75 @@ void ZenPlayer::CleanupResources() {
     video_decoder_->Close();
   }
 
-  // 3. 最后关闭解封装器（底层资源）
+  // 3. 清理硬件解码上下文（在解码器关闭后）
+  if (hw_decoder_context_) {
+    hw_decoder_context_.reset();
+  }
+
+  // 4. 最后关闭解封装器（底层资源）
   if (demuxer_) {
     demuxer_->Close();
   }
 
   MODULE_DEBUG(LOG_MODULE_PLAYER, "Resources cleaned up");
+}
+
+Result<void> ZenPlayer::InitializeVideoRenderingPipeline() {
+  // 检查是否有视频流
+  AVStream* video_stream =
+      demuxer_->findStreamByIndex(demuxer_->active_video_stream_index());
+
+  if (!video_stream) {
+    // 没有视频流，使用默认软件渲染器
+    MODULE_INFO(LOG_MODULE_PLAYER,
+                "No video stream found, using default software renderer");
+    if (!renderer_) {
+      renderer_ = RenderPathSelector::CreateDefaultRenderer();
+    }
+    return Result<void>::Ok();
+  }
+
+  // 有视频流，选择最佳渲染路径
+  MODULE_INFO(LOG_MODULE_PLAYER,
+              "Video stream found, selecting render path...");
+
+  auto selection = RenderPathSelector::Select(video_stream->codecpar->codec_id,
+                                              video_stream->codecpar->width,
+                                              video_stream->codecpar->height);
+
+  if (!selection.renderer) {
+    return Result<void>::Err(ErrorCode::kRendererError,
+                             "Failed to create renderer: " + selection.reason);
+  }
+
+  // 记录选择结果
+  MODULE_INFO(
+      LOG_MODULE_PLAYER,
+      "Selected render path: {} (hardware: {}, decoder: {}, reason: {})",
+      selection.backend_name, selection.is_hardware,
+      HWDecoderTypeUtil::GetName(selection.hw_decoder), selection.reason);
+
+  // 保存硬件上下文和渲染器（已经是 RendererProxy 包装过的）
+  hw_decoder_context_ = std::move(selection.hw_context);
+  renderer_ = std::move(selection.renderer);
+
+  // 打开视频解码器（可能使用硬件加速）
+  MODULE_INFO(LOG_MODULE_PLAYER, "Opening video decoder...");
+  return video_decoder_->Open(video_stream->codecpar, nullptr,
+                              hw_decoder_context_.get());
+}
+
+Result<void> ZenPlayer::InitializeAudioDecoder() {
+  AVStream* audio_stream =
+      demuxer_->findStreamByIndex(demuxer_->active_audio_stream_index());
+
+  if (!audio_stream) {
+    MODULE_INFO(LOG_MODULE_PLAYER, "No audio stream found, skipping");
+    return Result<void>::Ok();
+  }
+
+  MODULE_INFO(LOG_MODULE_PLAYER, "Opening audio decoder...");
+  return audio_decoder_->Open(audio_stream->codecpar);
 }
 
 Result<void> ZenPlayer::Open(const std::string& url) {
@@ -71,33 +137,13 @@ Result<void> ZenPlayer::Open(const std::string& url) {
 
   return demuxer_
       ->Open(url)
-      // ✅ Step 1 成功：Demuxer 已打开
+      // ✅ Step 1: Demuxer 已打开
       .AndThen([this]() -> Result<void> {
-        // 尝试打开视频解码器（如果有视频流）
-        AVStream* video_stream =
-            demuxer_->findStreamByIndex(demuxer_->active_video_stream_index());
-        if (video_stream) {
-          MODULE_INFO(LOG_MODULE_PLAYER, "Opening video decoder...");
-          return video_decoder_->Open(video_stream->codecpar);
-        }
-        // 没有视频流，返回成功继续
-        MODULE_INFO(LOG_MODULE_PLAYER, "No video stream found, skipping");
-        return Result<void>::Ok();
+        return InitializeVideoRenderingPipeline();
       })
-      // ✅ Step 2 成功：Video Decoder 已打开（或跳过）
-      .AndThen([this]() -> Result<void> {
-        // 尝试打开音频解码器（如果有音频流）
-        AVStream* audio_stream =
-            demuxer_->findStreamByIndex(demuxer_->active_audio_stream_index());
-        if (audio_stream) {
-          MODULE_INFO(LOG_MODULE_PLAYER, "Opening audio decoder...");
-          return audio_decoder_->Open(audio_stream->codecpar);
-        }
-        // 没有音频流，返回成功继续
-        MODULE_INFO(LOG_MODULE_PLAYER, "No audio stream found, skipping");
-        return Result<void>::Ok();
-      })
-      // ✅ Step 3 成功：Audio Decoder 已打开（或跳过）
+      // ✅ Step 2: Video rendering pipeline 已初始化（或跳过）
+      .AndThen([this]() -> Result<void> { return InitializeAudioDecoder(); })
+      // ✅ Step 3: Audio Decoder 已打开（或跳过）
       .AndThen([this]() -> Result<void> {
         // 创建播放控制器
         MODULE_INFO(LOG_MODULE_PLAYER, "Creating playback controller...");

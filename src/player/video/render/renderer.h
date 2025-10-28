@@ -12,8 +12,6 @@ namespace zenplay {
 
 class Renderer {
  public:
-  static Renderer* CreateRenderer();
-
   Renderer() = default;
   virtual ~Renderer() = default;
 

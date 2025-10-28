@@ -13,6 +13,7 @@ class AudioDecoder;
 class Demuxer;
 class Renderer;
 class PlaybackController;
+class HWDecoderContext;
 
 class ZenPlayer {
  public:
@@ -112,11 +113,31 @@ class ZenPlayer {
    */
   void CleanupResources();
 
+  /**
+   * @brief 初始化视频渲染和解码管线（内部辅助方法）
+   * @details 根据视频流信息：
+   *          1. 选择渲染路径（硬件加速或软件渲染）
+   *          2. 创建渲染器（已包装为 RendererProxy）
+   *          3. 创建硬件解码上下文（如果使用硬件加速）
+   *          4. 打开视频解码器
+   * @return Result<void> 成功返回Ok，失败返回错误信息
+   */
+  Result<void> InitializeVideoRenderingPipeline();
+
+  /**
+   * @brief 初始化音频解码器（内部辅助方法）
+   * @return Result<void> 成功返回Ok，失败返回错误信息
+   */
+  Result<void> InitializeAudioDecoder();
+
   std::unique_ptr<Demuxer> demuxer_;
   std::unique_ptr<VideoDecoder> video_decoder_;
   std::unique_ptr<AudioDecoder> audio_decoder_;
   std::unique_ptr<Renderer> renderer_;
   std::unique_ptr<PlaybackController> playback_controller_;
+
+  // 硬件解码上下文（如果使用硬件加速）
+  std::unique_ptr<HWDecoderContext> hw_decoder_context_;
 
   // 新：统一的状态管理器
   std::shared_ptr<PlayerStateManager> state_manager_;
