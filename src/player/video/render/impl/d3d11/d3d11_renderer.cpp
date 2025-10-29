@@ -1,12 +1,12 @@
 #include "d3d11_renderer.h"
 
-#include <format>
+#include <fmt/core.h>
 
 #include "player/common/common_def.h"
 #include "player/common/log_manager.h"
-#include "player/video/render/d3d11/d3d11_context.h"
-#include "player/video/render/d3d11/d3d11_shader.h"
-#include "player/video/render/d3d11/d3d11_swap_chain.h"
+#include "player/video/render/impl/d3d11/d3d11_context.h"
+#include "player/video/render/impl/d3d11/d3d11_shader.h"
+#include "player/video/render/impl/d3d11/d3d11_swap_chain.h"
 
 namespace zenplay {
 
@@ -99,7 +99,7 @@ bool D3D11Renderer::RenderFrame(AVFrame* frame) {
   auto srv_result = CreateShaderResourceViews(frame);
   if (!srv_result.IsOk()) {
     MODULE_ERROR(LOG_MODULE_RENDERER, "Failed to create SRV: {}",
-                 srv_result.Error().message);
+                 srv_result.FullMessage());
     return false;
   }
 
@@ -110,7 +110,7 @@ bool D3D11Renderer::RenderFrame(AVFrame* frame) {
   auto render_result = RenderQuad();
   if (!render_result.IsOk()) {
     MODULE_ERROR(LOG_MODULE_RENDERER, "Failed to render quad: {}",
-                 render_result.Error().message);
+                 render_result.FullMessage());
     return false;
   }
 
@@ -145,7 +145,7 @@ Result<void> D3D11Renderer::CreateShaderResourceViews(AVFrame* frame) {
   if (FAILED(hr)) {
     return Result<void>::Err(
         ErrorCode::kRenderError,
-        std::format("Failed to create Y plane SRV: HRESULT 0x{:08X}",
+        fmt::format("Failed to create Y plane SRV: HRESULT 0x{:08X}",
                     static_cast<uint32_t>(hr)));
   }
 
@@ -161,7 +161,7 @@ Result<void> D3D11Renderer::CreateShaderResourceViews(AVFrame* frame) {
   if (FAILED(hr)) {
     return Result<void>::Err(
         ErrorCode::kRenderError,
-        std::format("Failed to create UV plane SRV: HRESULT 0x{:08X}",
+        fmt::format("Failed to create UV plane SRV: HRESULT 0x{:08X}",
                     static_cast<uint32_t>(hr)));
   }
 
@@ -237,7 +237,7 @@ void D3D11Renderer::OnResize(int width, int height) {
   auto result = swap_chain_->Resize(width, height);
   if (!result.IsOk()) {
     MODULE_ERROR(LOG_MODULE_RENDERER, "Failed to resize swap chain: {}",
-                 result.Error().message);
+                 result.FullMessage());
   }
 }
 

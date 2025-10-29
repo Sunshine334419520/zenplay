@@ -8,9 +8,6 @@
 
 namespace zenplay {
 
-template <typename T>
-using ComPtr = Microsoft::WRL::ComPtr<T>;
-
 /**
  * @brief D3D11 交换链管理
  */
@@ -28,7 +25,9 @@ class D3D11SwapChain {
    * @param height 高度
    * @return Result<void>
    */
-  Result<void> Initialize(ID3D11Device* device, void* window_handle, int width,
+  Result<void> Initialize(ID3D11Device* device,
+                          void* window_handle,
+                          int width,
                           int height);
 
   /**
@@ -56,9 +55,9 @@ class D3D11SwapChain {
  private:
   Result<void> CreateRenderTargetView();
 
-  ComPtr<IDXGISwapChain1> swap_chain_;
-  ComPtr<ID3D11RenderTargetView> render_target_view_;
-  ComPtr<ID3D11Device> device_;
+  Microsoft::WRL::ComPtr<IDXGISwapChain1> swap_chain_;
+  Microsoft::WRL::ComPtr<ID3D11RenderTargetView> render_target_view_;
+  Microsoft::WRL::ComPtr<ID3D11Device> device_;
 
   int width_ = 0;
   int height_ = 0;

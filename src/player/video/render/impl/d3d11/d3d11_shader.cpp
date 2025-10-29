@@ -1,6 +1,7 @@
 #include "player/video/render/impl/d3d11/d3d11_shader.h"
 
 #include <d3dcompiler.h>
+#include <wrl/client.h>
 
 #include "player/common/log_manager.h"
 #include "player/common/win32_error_utils.h"
@@ -95,7 +96,7 @@ Result<void> D3D11Shader::Initialize(ID3D11Device* device) {
 }
 
 Result<void> D3D11Shader::CreateVertexShader(ID3D11Device* device) {
-  ComPtr<ID3DBlob> error_blob;
+  Microsoft::WRL::ComPtr<ID3DBlob> error_blob;
 
   HRESULT hr = D3DCompile(ShaderSource::VertexShaderSource,
                           strlen(ShaderSource::VertexShaderSource),
@@ -124,8 +125,8 @@ Result<void> D3D11Shader::CreateVertexShader(ID3D11Device* device) {
 }
 
 Result<void> D3D11Shader::CreatePixelShader(ID3D11Device* device) {
-  ComPtr<ID3DBlob> shader_blob;
-  ComPtr<ID3DBlob> error_blob;
+  Microsoft::WRL::ComPtr<ID3DBlob> shader_blob;
+  Microsoft::WRL::ComPtr<ID3DBlob> error_blob;
 
   HRESULT hr = D3DCompile(
       ShaderSource::PixelShaderSource, strlen(ShaderSource::PixelShaderSource),

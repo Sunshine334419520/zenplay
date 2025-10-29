@@ -9,9 +9,6 @@
 
 namespace zenplay {
 
-template <typename T>
-using ComPtr = Microsoft::WRL::ComPtr<T>;
-
 /**
  * @brief YUV 到 RGB 转换的 D3D11 着色器
  */
@@ -57,11 +54,12 @@ class D3D11Shader {
   Result<void> CreateInputLayout(ID3D11Device* device);
   Result<void> CreateSamplerState(ID3D11Device* device);
 
-  ComPtr<ID3D11VertexShader> vertex_shader_;
-  ComPtr<ID3D11PixelShader> pixel_shader_;
-  ComPtr<ID3D11InputLayout> input_layout_;
-  ComPtr<ID3D11SamplerState> sampler_state_;
-  ComPtr<ID3DBlob> vs_blob_;  // 保存顶点着色器字节码用于输入布局
+  Microsoft::WRL::ComPtr<ID3D11VertexShader> vertex_shader_;
+  Microsoft::WRL::ComPtr<ID3D11PixelShader> pixel_shader_;
+  Microsoft::WRL::ComPtr<ID3D11InputLayout> input_layout_;
+  Microsoft::WRL::ComPtr<ID3D11SamplerState> sampler_state_;
+  Microsoft::WRL::ComPtr<ID3DBlob>
+      vs_blob_;  // 保存顶点着色器字节码用于输入布局
 };
 
 }  // namespace zenplay

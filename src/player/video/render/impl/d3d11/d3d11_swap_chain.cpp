@@ -1,5 +1,7 @@
 #include "player/video/render/impl/d3d11/d3d11_swap_chain.h"
 
+#include <wrl/client.h>
+
 #include "player/common/log_manager.h"
 #include "player/common/win32_error_utils.h"
 
@@ -18,19 +20,19 @@ Result<void> D3D11SwapChain::Initialize(ID3D11Device* device,
   height_ = height;
 
   // 获取 DXGI Factory
-  ComPtr<IDXGIDevice> dxgi_device;
+  Microsoft::WRL::ComPtr<IDXGIDevice> dxgi_device;
   HRESULT hr = device->QueryInterface(IID_PPV_ARGS(dxgi_device.GetAddressOf()));
   if (FAILED(hr)) {
     return HRESULTToResult(hr, "Failed to query DXGI device");
   }
 
-  ComPtr<IDXGIAdapter> dxgi_adapter;
+  Microsoft::WRL::ComPtr<IDXGIAdapter> dxgi_adapter;
   hr = dxgi_device->GetAdapter(dxgi_adapter.GetAddressOf());
   if (FAILED(hr)) {
     return HRESULTToResult(hr, "Failed to get DXGI adapter");
   }
 
-  ComPtr<IDXGIFactory2> dxgi_factory;
+  Microsoft::WRL::ComPtr<IDXGIFactory2> dxgi_factory;
   hr = dxgi_adapter->GetParent(IID_PPV_ARGS(dxgi_factory.GetAddressOf()));
   if (FAILED(hr)) {
     return HRESULTToResult(hr, "Failed to get DXGI factory");
@@ -73,8 +75,8 @@ Result<void> D3D11SwapChain::Initialize(ID3D11Device* device,
 }
 
 Result<void> D3D11SwapChain::CreateRenderTargetView() {
-  // 获取后台缓冲�?
-  ComPtr<ID3D11Texture2D> back_buffer;
+  // 获取后台缓冲区
+  Microsoft::WRL::ComPtr<ID3D11Texture2D> back_buffer;
   HRESULT hr =
       swap_chain_->GetBuffer(0, IID_PPV_ARGS(back_buffer.GetAddressOf()));
   if (FAILED(hr)) {

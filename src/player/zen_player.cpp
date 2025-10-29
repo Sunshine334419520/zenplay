@@ -91,7 +91,7 @@ Result<void> ZenPlayer::InitializeVideoRenderingPipeline() {
                                               video_stream->codecpar->height);
 
   if (!selection.renderer) {
-    return Result<void>::Err(ErrorCode::kRendererError,
+    return Result<void>::Err(ErrorCode::kRenderError,
                              "Failed to create renderer: " + selection.reason);
   }
 

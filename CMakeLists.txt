@@ -9,6 +9,7 @@ find_package(Qt6 REQUIRED COMPONENTS Core Widgets Gui)
 find_package(ffmpeg REQUIRED)
 find_package(spdlog REQUIRED)
 find_package(SDL2 REQUIRED)
+find_package(fmt REQUIRED)
 
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
@@ -180,6 +181,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     SDL2::SDL2
     SDL2::SDL2main
     loki
+    fmt::fmt
 )
 
 # Windows 平台添加 D3D11 和 DXGI 库（硬件加速渲染）

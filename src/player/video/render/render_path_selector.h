@@ -5,6 +5,10 @@
 
 #include "player/codec/hw_decoder_type.h"
 
+extern "C" {
+#include <libavcodec/codec_id.h>
+}
+
 namespace zenplay {
 
 // Forward declarations

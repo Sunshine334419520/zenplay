@@ -7,9 +7,7 @@
 
 namespace zenplay {
 
-// 使用 Microsoft::WRL::ComPtr 管理 COM 对象
-template <typename T>
-using ComPtr = Microsoft::WRL::ComPtr<T>;
+// 使用 Microsoft::WRL::ComPtr<T> 管理 COM 对象
 
 /**
  * @brief D3D11 设备上下文管理
@@ -62,8 +60,8 @@ class D3D11Context {
   void Cleanup();
 
  private:
-  ComPtr<ID3D11Device> device_;
-  ComPtr<ID3D11DeviceContext> device_context_;
+  Microsoft::WRL::ComPtr<ID3D11Device> device_;
+  Microsoft::WRL::ComPtr<ID3D11DeviceContext> device_context_;
   D3D_FEATURE_LEVEL feature_level_ = D3D_FEATURE_LEVEL_11_0;
   bool is_shared_device_ = false;  // 是否使用共享设备
 };

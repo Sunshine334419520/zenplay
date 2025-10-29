@@ -16,8 +16,6 @@ class D3D11Context;
 class D3D11Shader;
 class D3D11SwapChain;
 
-using Microsoft::WRL::ComPtr;
-
 /**
  * @brief D3D11 硬件加速渲染器
  *
@@ -85,10 +83,10 @@ class D3D11Renderer : public Renderer {
   std::unique_ptr<D3D11Shader> shader_;
   std::unique_ptr<D3D11SwapChain> swap_chain_;
 
-  // ComPtr 需要完整类型定义，必须包含 d3d11.h
+  // Microsoft::WRL::ComPtr 需要完整类型定义，必须包含 d3d11.h
   // 纹理资源视图（用于着色器采样）
-  ComPtr<ID3D11ShaderResourceView> y_srv_;   // Y 平面
-  ComPtr<ID3D11ShaderResourceView> uv_srv_;  // UV 平面（NV12）
+  Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> y_srv_;   // Y 平面
+  Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> uv_srv_;  // UV 平面（NV12）
 
   // 共享设备（来自解码器）- 原始指针可以使用前置声明
   ID3D11Device* shared_device_ = nullptr;

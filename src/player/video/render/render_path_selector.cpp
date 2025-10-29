@@ -41,7 +41,7 @@ RenderPathSelection RenderPathSelector::Select(AVCodecID codec_id,
 }
 
 std::unique_ptr<Renderer> RenderPathSelector::CreateDefaultRenderer() {
-  LOG_INFO(
+  ZENPLAY_INFO(
       "Creating default software renderer (SDL, wrapped in RendererProxy)");
 
   // 创建 SDL 软件渲染器并包装为 RendererProxy
@@ -71,7 +71,8 @@ RenderPathSelection RenderPathSelector::SelectForWindows(AVCodecID codec_id,
   for (auto type : recommended_types) {
     if (type == HWDecoderType::kD3D11VA) {
       if (config->GetBool("render.hardware.allow_d3d11va", true)) {
-        LOG_INFO("Attempting to create D3D11 hardware acceleration pipeline");
+        ZENPLAY_INFO(
+            "Attempting to create D3D11 hardware acceleration pipeline");
 
         // 1. 创建硬件解码上下文
         auto hw_context = std::make_unique<HWDecoderContext>();
@@ -86,11 +87,11 @@ RenderPathSelection RenderPathSelector::SelectForWindows(AVCodecID codec_id,
           ID3D11Device* shared_device = hw_context->GetD3D11Device();
           if (shared_device) {
             d3d11_renderer->SetSharedD3D11Device(shared_device);
-            LOG_INFO(
+            ZENPLAY_INFO(
                 "✅ D3D11 device shared between decoder and renderer "
                 "(zero-copy enabled)");
           } else {
-            LOG_WARN(
+            ZENPLAY_INFO(
                 "Failed to get D3D11 device from hw_context, zero-copy may not "
                 "work");
           }
@@ -99,7 +100,7 @@ RenderPathSelection RenderPathSelector::SelectForWindows(AVCodecID codec_id,
           auto renderer_proxy =
               std::make_unique<RendererProxy>(std::move(d3d11_renderer));
 
-          LOG_INFO(
+          ZENPLAY_INFO(
               "✅ Selected D3D11 hardware acceleration (D3D11VA decoder + "
               "D3D11 renderer)");
           result.renderer = std::move(renderer_proxy);
@@ -110,16 +111,16 @@ RenderPathSelection RenderPathSelector::SelectForWindows(AVCodecID codec_id,
           result.is_hardware = true;
           return result;
         } else {
-          LOG_WARN("Failed to initialize D3D11VA context: {}",
-                   init_result.Error().message);
+          ZENPLAY_WARN("Failed to initialize D3D11VA context: {}",
+                       init_result.FullMessage());
           // 继续尝试其他选项或回退
         }
       } else {
-        LOG_INFO("D3D11VA available but disabled by config");
+        ZENPLAY_INFO("D3D11VA available but disabled by config");
       }
     } else if (type == HWDecoderType::kDXVA2) {
       if (config->GetBool("render.hardware.allow_dxva2", true)) {
-        LOG_INFO("DXVA2 decoder available but not fully implemented yet");
+        ZENPLAY_INFO("DXVA2 decoder available but not fully implemented yet");
         // TODO: 实现 DXVA2 完整支持
       }
     }
@@ -130,7 +131,7 @@ RenderPathSelection RenderPathSelector::SelectForWindows(AVCodecID codec_id,
     return SelectSoftwareFallback(
         "Hardware acceleration initialization failed on Windows");
   } else {
-    LOG_ERROR("Hardware acceleration required but initialization failed");
+    ZENPLAY_ERROR("Hardware acceleration required but initialization failed");
     result.reason = "Hardware acceleration required but initialization failed";
     return result;  // renderer 为 nullptr
   }
@@ -158,14 +159,14 @@ RenderPathSelection RenderPathSelector::SelectForLinux(AVCodecID codec_id,
   // 检查 VAAPI/VDPAU
   for (auto type : recommended_types) {
     if (type == HWDecoderType::kVAAPI) {
-      LOG_INFO(
+      ZENPLAY_INFO(
           "VAAPI decoder available but hardware renderer not implemented yet");
       result.hw_decoder = type;
       // TODO: 实现 VaapiRenderer
       // auto hw_context = std::make_unique<HWDecoderContext>();
       // hw_context->Initialize(HWDecoderType::kVAAPI, codec_id, width, height);
     } else if (type == HWDecoderType::kVDPAU) {
-      LOG_INFO(
+      ZENPLAY_INFO(
           "VDPAU decoder available but hardware renderer not implemented yet");
       result.hw_decoder = type;
       // TODO: 实现 VdpauRenderer
@@ -176,7 +177,7 @@ RenderPathSelection RenderPathSelector::SelectForLinux(AVCodecID codec_id,
   if (IsFallbackAllowed(config)) {
     return SelectSoftwareFallback("Linux hardware renderer not implemented");
   } else {
-    LOG_ERROR("Hardware acceleration required but not available on Linux");
+    ZENPLAY_ERROR("Hardware acceleration required but not available on Linux");
     result.reason = "Hardware acceleration required but not implemented";
     return result;  // renderer 为 nullptr
   }
@@ -204,7 +205,7 @@ RenderPathSelection RenderPathSelector::SelectForMacOS(AVCodecID codec_id,
   // 检查 VideoToolbox
   for (auto type : recommended_types) {
     if (type == HWDecoderType::kVideoToolbox) {
-      LOG_INFO(
+      ZENPLAY_INFO(
           "VideoToolbox decoder available but hardware renderer not "
           "implemented yet");
       result.hw_decoder = type;
@@ -219,7 +220,7 @@ RenderPathSelection RenderPathSelector::SelectForMacOS(AVCodecID codec_id,
   if (IsFallbackAllowed(config)) {
     return SelectSoftwareFallback("macOS hardware renderer not implemented");
   } else {
-    LOG_ERROR("Hardware acceleration required but not available on macOS");
+    ZENPLAY_ERROR("Hardware acceleration required but not available on macOS");
     result.reason = "Hardware acceleration required but not implemented";
     return result;  // renderer 为 nullptr
   }
@@ -229,7 +230,7 @@ RenderPathSelection RenderPathSelector::SelectForMacOS(AVCodecID codec_id,
 
 RenderPathSelection RenderPathSelector::SelectSoftwareFallback(
     const std::string& reason) {
-  LOG_INFO("Using SDL software renderer: {}", reason);
+  ZENPLAY_INFO("Using SDL software renderer: {}", reason);
 
   RenderPathSelection result;
 
