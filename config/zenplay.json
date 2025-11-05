@@ -21,7 +21,7 @@
         }
     },
     "render": {
-        "use_hardware_acceleration": true,
+        "use_hardware_acceleration": false,
         "backend_priority": [
             "d3d11",
             "opengl",

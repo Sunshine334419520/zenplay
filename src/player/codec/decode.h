@@ -54,7 +54,7 @@ class Decoder {
    * @brief 接收单个解码后的帧
    * @return Result<AVFrame*> 成功返回帧指针，EAGAIN 返回 nullptr，失败返回错误
    */
-  Result<AVFrame*> ReceiveFrame();
+  virtual Result<AVFrame*> ReceiveFrame();
 
   /**
    * @brief 刷新解码器缓冲区
@@ -64,9 +64,29 @@ class Decoder {
   bool opened() const { return opened_; }
   AVMediaType codec_type() const { return codec_type_; }
 
+  /**
+   * @brief 获取底层 AVCodecContext（用于高级操作）
+   * @return AVCodecContext* 或 nullptr（未打开时）
+   */
+  AVCodecContext* GetCodecContext() const { return codec_context_.get(); }
+
   void FlushBuffers();
 
  protected:
+  /**
+   * @brief 配置解码器的钩子函数（在 avcodec_open2 之前调用）
+   *
+   * 子类可以重写此函数来配置硬件加速等特殊参数。
+   * 例如：VideoDecoder 可以在此设置 hw_device_ctx 和 hw_frames_ctx
+   *
+   * @param codec_ctx 已分配但尚未打开的解码器上下文
+   * @return Result<void> 成功返回 Ok()，失败返回错误
+   */
+  virtual Result<void> OnBeforeOpen(AVCodecContext* codec_ctx) {
+    // 默认实现：什么都不做
+    return Result<void>::Ok();
+  }
+
   std::unique_ptr<AVCodecContext, AVCodecCtxDeleter> codec_context_;
   AVFramePtr workFrame_ = nullptr;
   AVMediaType codec_type_ = AVMEDIA_TYPE_UNKNOWN;

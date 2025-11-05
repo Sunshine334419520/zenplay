@@ -3,6 +3,8 @@
 #include <d3d11.h>
 #include <wrl/client.h>
 
+#include <vector>
+
 #include "player/video/render/renderer.h"
 
 extern "C" {
@@ -90,6 +92,17 @@ class D3D11Renderer : public Renderer {
 
   // 共享设备（来自解码器）- 原始指针可以使用前置声明
   ID3D11Device* shared_device_ = nullptr;
+
+  // 🚀 SRV 池：为多个纹理缓存 SRV（性能关键！）
+  // FFmpeg 使用纹理池（通常 4-16 个纹理），需要为每个纹理缓存对应的 SRV
+  struct SRVCache {
+    ID3D11Texture2D* texture;
+    Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> y_srv;
+    Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> uv_srv;
+  };
+  std::vector<SRVCache> srv_pool_;  // SRV 缓存池
+  uint64_t srv_cache_hits_ = 0;     // 缓存命中次数
+  uint64_t srv_cache_misses_ = 0;   // 缓存未命中次数
 
   int width_ = 0;
   int height_ = 0;

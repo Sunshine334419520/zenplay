@@ -276,9 +276,9 @@ bool AudioResampler::DoResample(const AVFrame* frame,
   out_resampled.channels = config_.target_channels;
   out_resampled.bytes_per_sample = bytes_per_sample;
 
-  MODULE_DEBUG(LOG_MODULE_AUDIO,
-               "Resampled: {} samples -> {} samples, {} bytes",
-               frame->nb_samples, converted_samples, actual_size);
+  // MODULE_DEBUG(LOG_MODULE_AUDIO,
+  //              "Resampled: {} samples -> {} samples, {} bytes",
+  //              frame->nb_samples, converted_samples, actual_size);
 
   return true;
 }

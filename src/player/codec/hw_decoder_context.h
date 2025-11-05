@@ -88,24 +88,31 @@ class HWDecoderContext {
    */
   void Cleanup();
 
+  /**
+   * @brief 验证硬件帧上下文是否正确配置（用于诊断）
+   *
+   * @param codec_ctx 解码器上下文
+   * @return true 如果帧上下文配置正确（零拷贝可用）
+   */
+  bool ValidateFramesContext(AVCodecContext* codec_ctx) const;
+
  private:
   // FFmpeg 硬件格式选择回调
   static AVPixelFormat GetHWFormat(AVCodecContext* ctx,
                                    const AVPixelFormat* pix_fmts);
 
-#ifdef OS_WIN
-  Result<void> CreateD3D11VAContext();
-  Result<void> CreateDXVA2Context();
-#endif
-  Result<void> CreateHWFramesContext(int width, int height);
+  // ✅ 像 MPV 一样：使用 FFmpeg API 初始化硬件加速（而不是手动创建）
+  Result<void> InitGenericHWAccel(AVCodecContext* ctx, AVPixelFormat hw_fmt);
 
   HWDecoderType decoder_type_ = HWDecoderType::kNone;
   AVBufferRef* hw_device_ctx_ = nullptr;  // AVHWDeviceContext
-  AVBufferRef* hw_frames_ctx_ = nullptr;  // AVHWFramesContext
   AVPixelFormat hw_pix_fmt_ = AV_PIX_FMT_NONE;
 
+  // 状态标志：防止 get_format 回调中重复创建帧上下文
+  mutable bool frames_ctx_created_ = false;
+
 #ifdef OS_WIN
-  // D3D11 设备（从 AVHWDeviceContext 提取）
+  // D3D11 设备（从 AVHWDeviceContext 提取，不拥有所有权）
   ID3D11Device* d3d11_device_ = nullptr;
   ID3D11DeviceContext* d3d11_device_context_ = nullptr;
 #endif

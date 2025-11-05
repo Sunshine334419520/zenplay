@@ -251,6 +251,18 @@ void VideoPlayer::VideoRenderThread() {
     double video_pts_ms = video_frame->timestamp.ToMilliseconds();
 
     if (av_sync_controller_) {
+      // 🔍 诊断日志：记录视频时钟更新（每30帧输出一次）
+      static int video_clock_update_count = 0;
+      if (++video_clock_update_count % 30 == 0) {
+        double master_clock = av_sync_controller_->GetMasterClock(render_end);
+        double sync_offset = video_pts_ms - master_clock;
+        MODULE_DEBUG(LOG_MODULE_VIDEO,
+                     "🎬 Video Clock Update #{}: video_pts_ms={:.2f}, "
+                     "master_clock_ms={:.2f}, sync_offset={:.2f}ms",
+                     video_clock_update_count, video_pts_ms, master_clock,
+                     sync_offset);
+      }
+
       // 传递原始PTS，由AVSyncController统一归一化
       av_sync_controller_->UpdateVideoClock(video_pts_ms, render_end);
     }

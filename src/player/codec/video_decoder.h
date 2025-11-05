@@ -29,6 +29,11 @@ class VideoDecoder : public Decoder {
    */
   HWDecoderContext* GetHWContext() const { return hw_context_; }
 
+  /**
+   * @brief 接收解码帧（重写以支持零拷贝验证）
+   */
+  Result<AVFrame*> ReceiveFrame() override;
+
   int width() const {
     if (!codec_context_) {
       return 0;  // Not opened
@@ -57,8 +62,15 @@ class VideoDecoder : public Decoder {
     return static_cast<AVPixelFormat>(codec_context_->pix_fmt);
   }
 
+ protected:
+  /**
+   * @brief 配置解码器钩子：在 avcodec_open2 之前配置硬件加速
+   */
+  Result<void> OnBeforeOpen(AVCodecContext* codec_ctx) override;
+
  private:
   HWDecoderContext* hw_context_ = nullptr;  // 不拥有所有权
+  bool zero_copy_validated_ = false;        // 标志：是否已验证零拷贝
 };
 
 }  // namespace zenplay

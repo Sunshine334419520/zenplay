@@ -449,8 +449,13 @@ void PlaybackController::VideoDecodeTask() {
         if (video_player_) {
           // 创建时间戳信息
           VideoPlayer::FrameTimestamp timestamp;
+          // ✅ 直接使用 frame->pts（FFmpeg 解码器保证对 B 帧正确）
+          // 参考 MPV 实现：对于硬件解码，frame->pts 总是正确的显示时间
+          // best_effort_timestamp 对于 B 帧可能错误地使用 DTS 推算，导致
+          // 时间戳跳变（如 pts=52440 但 best_effort=158940，偏差 106500ms）
           timestamp.pts = frame->pts;
-          timestamp.dts = frame->pkt_dts;
+          timestamp.dts = frame->pkt_dts;  // 仅供调试，显示时使用 pts
+
           // 从视频流获取时间基准
           if (demuxer_ && demuxer_->active_video_stream_index() >= 0) {
             AVStream* stream = demuxer_->findStreamByIndex(
@@ -460,10 +465,22 @@ void PlaybackController::VideoDecodeTask() {
             }
           }
 
+          // 调试日志：显示pts/dts差异（B帧重排序会导致差异）
+          // 对于 B 帧，reorder_offset 会是负数（pts < dts）
+          MODULE_DEBUG(
+              LOG_MODULE_PLAYER,
+              "Decoded video frame: pts={}, dts={}, reorder_offset={}, "
+              "time_base={}/{}, pts_ms={:.2f}",
+              timestamp.pts, timestamp.dts, (timestamp.pts - timestamp.dts),
+              timestamp.time_base.num, timestamp.time_base.den,
+              timestamp.pts * av_q2d(timestamp.time_base) * 1000.0);
+
           // ✅ 使用 PushFrameTimeout，阻塞等待队列有空间（100ms超时）
           video_player_->PushFrameTimeout(std::move(frame), timestamp, 100);
         }
       }
+    } else {
+      MODULE_WARN(LOG_MODULE_PLAYER, "Video decode failed for a packet");
     }
 
     av_packet_free(&packet);

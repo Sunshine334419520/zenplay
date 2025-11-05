@@ -31,6 +31,10 @@ Result<void> D3D11Renderer::Init(void* window_handle, int width, int height) {
   MODULE_INFO(LOG_MODULE_RENDERER, "Initializing D3D11Renderer ({}x{})", width,
               height);
 
+  // 诊断：检查共享设备
+  MODULE_INFO(LOG_MODULE_RENDERER, "🔍 Shared device before Init: {} ({})",
+              (void*)shared_device_, shared_device_ ? "SET" : "NULL");
+
   width_ = width;
   height_ = height;
 
@@ -41,6 +45,11 @@ Result<void> D3D11Renderer::Init(void* window_handle, int width, int height) {
   }
 
   ID3D11Device* device = d3d11_context_->GetDevice();
+
+  // 诊断：验证设备是否相同
+  MODULE_INFO(LOG_MODULE_RENDERER,
+              "🔍 Device after context init: {}, same as shared: {}",
+              (void*)device, device == shared_device_ ? "YES" : "NO");
 
   // 2. 初始化着色器
   auto shader_result = shader_->Initialize(device);
@@ -123,15 +132,95 @@ bool D3D11Renderer::RenderFrame(AVFrame* frame) {
 Result<void> D3D11Renderer::CreateShaderResourceViews(AVFrame* frame) {
   ID3D11Texture2D* texture = reinterpret_cast<ID3D11Texture2D*>(frame->data[0]);
 
-  // 获取纹理描述
-  D3D11_TEXTURE2D_DESC texture_desc;
-  texture->GetDesc(&texture_desc);
+  // 🚀 性能优化：SRV 池 - 为 FFmpeg 纹理池中的每个纹理缓存 SRV
+  // FFmpeg 通常使用 4-16 个纹理的池，需要为每个纹理维护对应的 SRV
+
+  // 1. 先在池中查找是否已缓存
+  for (auto& cache : srv_pool_) {
+    if (cache.texture == texture) {
+      // 缓存命中：复用现有 SRV
+      srv_cache_hits_++;
+      y_srv_ = cache.y_srv;
+      uv_srv_ = cache.uv_srv;
+
+      // 每 100 次命中记录一次统计
+      if (srv_cache_hits_ % 100 == 0) {
+        MODULE_DEBUG(
+            LOG_MODULE_RENDERER,
+            "📊 SRV Pool: {} hits, {} misses, pool size: {} ({:.1f}% "
+            "hit rate)",
+            srv_cache_hits_, srv_cache_misses_, srv_pool_.size(),
+            100.0 * srv_cache_hits_ / (srv_cache_hits_ + srv_cache_misses_));
+      }
+      return Result<void>::Ok();
+    }
+  }
+
+  // 2. 缓存未命中：需要创建新的 SRV 并添加到池
+  srv_cache_misses_++;
+
+  MODULE_DEBUG(LOG_MODULE_RENDERER,
+               "🔍 Creating NEW SRV (cache miss #{}): texture ptr = {}, pool "
+               "size will be: {}",
+               srv_cache_misses_, (void*)texture, srv_pool_.size() + 1);
 
   ID3D11Device* device = d3d11_context_->GetDevice();
 
-  // NV12 格式：
-  // - Y 平面：DXGI_FORMAT_R8_UNORM (单通道 8 位)
-  // - UV 平面：DXGI_FORMAT_R8G8_UNORM (双通道 8 位，U 和 V 交织)
+  // 🔍 只在第一次验证设备和 BindFlags（避免每次缓存未命中都执行）
+  if (srv_cache_misses_ == 1) {
+    // 获取纹理描述
+    D3D11_TEXTURE2D_DESC texture_desc;
+    texture->GetDesc(&texture_desc);
+
+    MODULE_INFO(LOG_MODULE_RENDERER,
+                "🔍 First texture: format={}, size={}x{}, bind_flags=0x{:X}",
+                static_cast<int>(texture_desc.Format), texture_desc.Width,
+                texture_desc.Height, texture_desc.BindFlags);
+
+    // 检查纹理来源设备
+    Microsoft::WRL::ComPtr<ID3D11Device> texture_device;
+    texture->GetDevice(texture_device.GetAddressOf());
+
+    MODULE_INFO(LOG_MODULE_RENDERER,
+                "🔍 Texture device: {}, Renderer device: {}, Match: {}",
+                (void*)texture_device.Get(), (void*)device,
+                texture_device.Get() == device ? "✅ YES" : "❌ NO");
+
+    if (texture_device.Get() != device) {
+      MODULE_ERROR(
+          LOG_MODULE_RENDERER,
+          "❌ Device mismatch! Texture was created on different D3D11 device. "
+          "Zero-copy failed!");
+      return Result<void>::Err(
+          ErrorCode::kRenderError,
+          "D3D11 device mismatch between decoder and renderer");
+    }
+
+    // 检查纹理绑定标志
+    if (!(texture_desc.BindFlags & D3D11_BIND_SHADER_RESOURCE)) {
+      MODULE_ERROR(
+          LOG_MODULE_RENDERER,
+          "❌ ZERO-COPY FAILED: Texture missing D3D11_BIND_SHADER_RESOURCE "
+          "flag!\n"
+          "   Current BindFlags: 0x{:X}\n"
+          "   Required: 0x{:X} (DECODER | SHADER_RESOURCE)\n"
+          "   This means the hw_frames_ctx was not configured correctly.\n"
+          "   Check HWDecoderContext::CreateCustomFramesContext()",
+          texture_desc.BindFlags,
+          D3D11_BIND_DECODER | D3D11_BIND_SHADER_RESOURCE);
+      return Result<void>::Err(
+          ErrorCode::kRenderError,
+          "D3D11 texture missing SHADER_RESOURCE bind flag");
+    }
+
+    MODULE_INFO(LOG_MODULE_RENDERER,
+                "✅ Texture has correct BindFlags for zero-copy: 0x{:X}",
+                texture_desc.BindFlags);
+  }
+
+  // 创建新的 SRV 缓存条目
+  SRVCache new_cache;
+  new_cache.texture = texture;
 
   // 创建 Y 平面的 SRV
   D3D11_SHADER_RESOURCE_VIEW_DESC y_srv_desc = {};
@@ -141,7 +230,7 @@ Result<void> D3D11Renderer::CreateShaderResourceViews(AVFrame* frame) {
   y_srv_desc.Texture2D.MostDetailedMip = 0;
 
   HRESULT hr = device->CreateShaderResourceView(
-      texture, &y_srv_desc, y_srv_.ReleaseAndGetAddressOf());
+      texture, &y_srv_desc, new_cache.y_srv.ReleaseAndGetAddressOf());
   if (FAILED(hr)) {
     return Result<void>::Err(
         ErrorCode::kRenderError,
@@ -156,8 +245,8 @@ Result<void> D3D11Renderer::CreateShaderResourceViews(AVFrame* frame) {
   uv_srv_desc.Texture2D.MipLevels = 1;
   uv_srv_desc.Texture2D.MostDetailedMip = 0;
 
-  hr = device->CreateShaderResourceView(texture, &uv_srv_desc,
-                                        uv_srv_.ReleaseAndGetAddressOf());
+  hr = device->CreateShaderResourceView(
+      texture, &uv_srv_desc, new_cache.uv_srv.ReleaseAndGetAddressOf());
   if (FAILED(hr)) {
     return Result<void>::Err(
         ErrorCode::kRenderError,
@@ -165,8 +254,14 @@ Result<void> D3D11Renderer::CreateShaderResourceViews(AVFrame* frame) {
                     static_cast<uint32_t>(hr)));
   }
 
+  // 添加到池并设置当前 SRV
+  y_srv_ = new_cache.y_srv;
+  uv_srv_ = new_cache.uv_srv;
+  srv_pool_.push_back(std::move(new_cache));
+
   MODULE_DEBUG(LOG_MODULE_RENDERER,
-               "Shader resource views created for NV12 texture");
+               "✅ NEW SRV created and cached: texture {}, pool size now: {}",
+               (void*)texture, srv_pool_.size());
   return Result<void>::Ok();
 }
 
@@ -248,8 +343,19 @@ void D3D11Renderer::Cleanup() {
 
   MODULE_INFO(LOG_MODULE_RENDERER, "Cleaning up D3D11Renderer");
 
+  // 输出 SRV 缓存统计
+  if (srv_cache_hits_ + srv_cache_misses_ > 0) {
+    MODULE_INFO(
+        LOG_MODULE_RENDERER,
+        "📊 Final SRV Pool Stats: {} hits, {} misses, pool size: {} ({:.1f}% "
+        "hit rate)",
+        srv_cache_hits_, srv_cache_misses_, srv_pool_.size(),
+        100.0 * srv_cache_hits_ / (srv_cache_hits_ + srv_cache_misses_));
+  }
+
   y_srv_.Reset();
   uv_srv_.Reset();
+  srv_pool_.clear();
 
   if (swap_chain_) {
     swap_chain_->Cleanup();

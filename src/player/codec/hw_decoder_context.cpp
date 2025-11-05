@@ -57,56 +57,17 @@ Result<void> HWDecoderContext::Initialize(HWDecoderType decoder_type,
 
     MODULE_INFO(LOG_MODULE_DECODER, "D3D11 device: {}, context: {}",
                 (void*)d3d11_device_, (void*)d3d11_device_context_);
-  }
-#endif
 
-  // 5. 创建硬件帧上下文
-  auto frame_result = CreateHWFramesContext(width, height);
-  if (!frame_result.IsOk()) {
-    Cleanup();
-    return frame_result;
-  }
-
-  MODULE_INFO(LOG_MODULE_DECODER,
-              "HW decoder context initialized: {}x{}, type: {}", width, height,
-              HWDecoderTypeUtil::GetName(decoder_type));
-  return Result<void>::Ok();
-}
-
-Result<void> HWDecoderContext::CreateHWFramesContext(int width, int height) {
-  // 分配帧上下文
-  hw_frames_ctx_ = av_hwframe_ctx_alloc(hw_device_ctx_);
-  if (!hw_frames_ctx_) {
-    return Result<void>::Err(ErrorCode::kOutOfMemory,
-                             "Failed to allocate HW frames context");
-  }
-
-  AVHWFramesContext* frames_ctx = (AVHWFramesContext*)hw_frames_ctx_->data;
-
-#ifdef OS_WIN
-  // 配置帧参数
-  if (decoder_type_ == HWDecoderType::kD3D11VA) {
-    frames_ctx->format = AV_PIX_FMT_D3D11;    // 硬件格式
-    frames_ctx->sw_format = AV_PIX_FMT_NV12;  // 软件回退格式
+    // 设置硬件像素格式
     hw_pix_fmt_ = AV_PIX_FMT_D3D11;
-  } else if (decoder_type_ == HWDecoderType::kDXVA2) {
-    frames_ctx->format = AV_PIX_FMT_DXVA2_VLD;
-    frames_ctx->sw_format = AV_PIX_FMT_NV12;
+  } else if (decoder_type == HWDecoderType::kDXVA2) {
     hw_pix_fmt_ = AV_PIX_FMT_DXVA2_VLD;
   }
 #endif
 
-  frames_ctx->width = width;
-  frames_ctx->height = height;
-  frames_ctx->initial_pool_size = 20;  // 初始帧池大小
-
-  // 初始化帧上下文
-  int ret = av_hwframe_ctx_init(hw_frames_ctx_);
-  if (ret < 0) {
-    av_buffer_unref(&hw_frames_ctx_);
-    return FFmpegErrorToResult(ret, "Failed to initialize HW frames context");
-  }
-
+  MODULE_INFO(LOG_MODULE_DECODER,
+              "HW decoder context initialized: {}x{}, type: {}", width, height,
+              HWDecoderTypeUtil::GetName(decoder_type));
   return Result<void>::Ok();
 }
 
@@ -116,37 +77,131 @@ Result<void> HWDecoderContext::ConfigureDecoder(AVCodecContext* codec_ctx) {
                              "HW decoder context not initialized");
   }
 
-  // 设置硬件设备和帧上下文
+  // 设置硬件设备上下文
   codec_ctx->hw_device_ctx = av_buffer_ref(hw_device_ctx_);
-  codec_ctx->hw_frames_ctx = av_buffer_ref(hw_frames_ctx_);
 
-  // 设置格式选择回调
+  // 设置 get_format 回调（FFmpeg 会在解码器初始化时调用）
   codec_ctx->get_format = GetHWFormat;
-  codec_ctx->opaque = this;  // 传递上下文指针
+  codec_ctx->opaque = this;
 
-  // 启用硬件加速相关选项
-  codec_ctx->extra_hw_frames = 8;  // 额外的硬件帧缓冲
+  // ✅ 关键：不要在这里创建 hw_frames_ctx，让 FFmpeg 在 get_format 回调中通过
+  //    avcodec_get_hw_frames_parameters 创建
 
   MODULE_INFO(LOG_MODULE_DECODER,
-              "Decoder configured for hardware acceleration");
+              "Decoder configured for hardware acceleration (frames_ctx will "
+              "be created by FFmpeg)");
   return Result<void>::Ok();
 }
 
 AVPixelFormat HWDecoderContext::GetHWFormat(AVCodecContext* ctx,
                                             const AVPixelFormat* pix_fmts) {
   HWDecoderContext* hw_ctx = static_cast<HWDecoderContext*>(ctx->opaque);
+  if (!hw_ctx) {
+    MODULE_ERROR(LOG_MODULE_DECODER, "Invalid opaque pointer in GetHWFormat");
+    return AV_PIX_FMT_NONE;
+  }
 
   // 查找支持的硬件格式
   for (const AVPixelFormat* p = pix_fmts; *p != AV_PIX_FMT_NONE; p++) {
     if (*p == hw_ctx->hw_pix_fmt_) {
       MODULE_DEBUG(LOG_MODULE_DECODER, "Selected HW pixel format: {}",
                    av_get_pix_fmt_name(*p));
+
+      // ✅ 关键：像 MPV 一样，在 get_format 中创建 hw_frames_ctx
+      // 但使用 FFmpeg API 而不是手动创建
+      if (!hw_ctx->frames_ctx_created_ && ctx->hw_frames_ctx == nullptr) {
+        MODULE_INFO(LOG_MODULE_DECODER,
+                    "Creating hw_frames_ctx via FFmpeg API (like MPV)");
+
+        auto result = hw_ctx->InitGenericHWAccel(ctx, *p);
+        if (result.IsOk()) {
+          hw_ctx->frames_ctx_created_ = true;
+        } else {
+          MODULE_ERROR(LOG_MODULE_DECODER,
+                       "Failed to init hw_frames_ctx: {}, falling back to SW",
+                       result.Message());
+          return AV_PIX_FMT_NONE;  // 强制软件解码
+        }
+      }
+
       return *p;
     }
   }
 
   MODULE_ERROR(LOG_MODULE_DECODER, "Failed to find HW pixel format");
   return AV_PIX_FMT_NONE;
+}
+
+Result<void> HWDecoderContext::InitGenericHWAccel(AVCodecContext* ctx,
+                                                  AVPixelFormat hw_fmt) {
+  MODULE_INFO(LOG_MODULE_DECODER,
+              "Initializing generic hwaccel (MPV-style) for format: {}",
+              av_get_pix_fmt_name(hw_fmt));
+
+  // ✅ 关键：使用 FFmpeg API 创建 hw_frames_ctx，而不是手动创建
+  AVBufferRef* new_frames_ctx = nullptr;
+  int ret = avcodec_get_hw_frames_parameters(ctx, hw_device_ctx_, hw_fmt,
+                                             &new_frames_ctx);
+  if (ret < 0) {
+    return FFmpegErrorToResult(
+        ret,
+        "avcodec_get_hw_frames_parameters failed - codec may not "
+        "support hardware decoding");
+  }
+
+  AVHWFramesContext* frames_ctx =
+      reinterpret_cast<AVHWFramesContext*>(new_frames_ctx->data);
+
+  MODULE_INFO(LOG_MODULE_DECODER,
+              "FFmpeg calculated frames context: format={}, sw_format={}, "
+              "{}x{}, initial_pool_size={}",
+              av_get_pix_fmt_name(frames_ctx->format),
+              av_get_pix_fmt_name(frames_ctx->sw_format), frames_ctx->width,
+              frames_ctx->height, frames_ctx->initial_pool_size);
+
+  // ✅ 调整池大小（参考 MPV hwdec_extra_frames）
+  // FFmpeg 已经计算了基础池大小，我们只需要加上额外的缓冲
+  if (frames_ctx->initial_pool_size > 0) {
+    int extra_frames = 6;  // 参考 MPV 的 hwdec_extra_frames 默认值
+    frames_ctx->initial_pool_size += extra_frames;
+
+    MODULE_INFO(LOG_MODULE_DECODER,
+                "Adjusted pool_size: {} (FFmpeg base + {} extra)",
+                frames_ctx->initial_pool_size, extra_frames);
+  } else {
+    MODULE_INFO(LOG_MODULE_DECODER,
+                "Pool size = 0 (dynamic allocation enabled by FFmpeg)");
+  }
+
+#ifdef OS_WIN
+  // ✅ D3D11 特定：设置 BindFlags 以支持零拷贝
+  if (decoder_type_ == HWDecoderType::kD3D11VA) {
+    AVD3D11VAFramesContext* d3d11_frames_ctx =
+        reinterpret_cast<AVD3D11VAFramesContext*>(frames_ctx->hwctx);
+
+    // 添加 SHADER_RESOURCE flag（保留 FFmpeg 设置的其他 flags）
+    d3d11_frames_ctx->BindFlags |= D3D11_BIND_SHADER_RESOURCE;
+
+    MODULE_INFO(LOG_MODULE_DECODER,
+                "D3D11: Added SHADER_RESOURCE flag, BindFlags = 0x{:X}",
+                d3d11_frames_ctx->BindFlags);
+  }
+#endif
+
+  // ✅ 初始化帧上下文
+  ret = av_hwframe_ctx_init(new_frames_ctx);
+  if (ret < 0) {
+    av_buffer_unref(&new_frames_ctx);
+    return FFmpegErrorToResult(ret, "av_hwframe_ctx_init failed");
+  }
+
+  // ✅ 赋值给解码器（FFmpeg 接管所有权）
+  ctx->hw_frames_ctx = new_frames_ctx;
+
+  MODULE_INFO(LOG_MODULE_DECODER,
+              "✅ hw_frames_ctx initialized successfully via FFmpeg API");
+
+  return Result<void>::Ok();
 }
 
 #ifdef OS_WIN
@@ -170,16 +225,60 @@ ID3D11DeviceContext* HWDecoderContext::GetD3D11DeviceContext() const {
 }
 #endif
 
-void HWDecoderContext::Cleanup() {
-  if (hw_frames_ctx_) {
-    av_buffer_unref(&hw_frames_ctx_);
-    hw_frames_ctx_ = nullptr;
+bool HWDecoderContext::ValidateFramesContext(AVCodecContext* codec_ctx) const {
+  if (!codec_ctx || !codec_ctx->hw_frames_ctx) {
+    MODULE_WARN(LOG_MODULE_DECODER, "No hw_frames_ctx to validate");
+    return false;
   }
 
+  AVHWFramesContext* frames_ctx =
+      reinterpret_cast<AVHWFramesContext*>(codec_ctx->hw_frames_ctx->data);
+
+  MODULE_INFO(LOG_MODULE_DECODER,
+              "Validating frames context: format={}, sw_format={}, {}x{}",
+              av_get_pix_fmt_name(frames_ctx->format),
+              av_get_pix_fmt_name(frames_ctx->sw_format), frames_ctx->width,
+              frames_ctx->height);
+
+#ifdef OS_WIN
+  if (decoder_type_ == HWDecoderType::kD3D11VA) {
+    AVD3D11VAFramesContext* d3d11_ctx =
+        reinterpret_cast<AVD3D11VAFramesContext*>(frames_ctx->hwctx);
+
+    MODULE_INFO(LOG_MODULE_DECODER, "D3D11 frames context BindFlags: 0x{:X}",
+                d3d11_ctx->BindFlags);
+
+    // 检查是否包含零拷贝所需的标志
+    bool has_decoder_flag = (d3d11_ctx->BindFlags & D3D11_BIND_DECODER) != 0;
+    bool has_srv_flag =
+        (d3d11_ctx->BindFlags & D3D11_BIND_SHADER_RESOURCE) != 0;
+
+    if (has_decoder_flag && has_srv_flag) {
+      MODULE_INFO(LOG_MODULE_DECODER,
+                  "✅ Zero-copy enabled: BindFlags contains both DECODER and "
+                  "SHADER_RESOURCE");
+      return true;
+    } else {
+      MODULE_WARN(LOG_MODULE_DECODER,
+                  "⚠️ Zero-copy may not work: BindFlags missing required flags "
+                  "(DECODER={}, SHADER_RESOURCE={})",
+                  has_decoder_flag, has_srv_flag);
+      return false;
+    }
+  }
+#endif
+
+  return true;
+}
+
+void HWDecoderContext::Cleanup() {
   if (hw_device_ctx_) {
     av_buffer_unref(&hw_device_ctx_);
     hw_device_ctx_ = nullptr;
   }
+
+  // 重置状态标志
+  frames_ctx_created_ = false;
 
 #ifdef OS_WIN
   d3d11_device_ = nullptr;

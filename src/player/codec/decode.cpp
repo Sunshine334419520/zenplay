@@ -44,6 +44,15 @@ Result<void> Decoder::Open(AVCodecParameters* codec_params,
     return FFmpegErrorToResult(ret, "Copy codec parameters");
   }
 
+  // ✅ 调用钩子函数：让子类在 avcodec_open2 之前配置（例如硬件加速）
+  auto hook_result = OnBeforeOpen(codec_context_.get());
+  if (!hook_result.IsOk()) {
+    MODULE_ERROR(LOG_MODULE_DECODER, "OnBeforeOpen failed: {}",
+                 hook_result.Message());
+    codec_context_.reset();
+    return hook_result;
+  }
+
   ret = avcodec_open2(codec_context_.get(), codec, options);
   if (ret < 0) {
     MODULE_ERROR(LOG_MODULE_DECODER, "Failed to open codec");
@@ -78,29 +87,77 @@ bool zenplay::Decoder::Decode(AVPacket* packet,
     return false;  // Decoder not opened
   }
 
+  frames->clear();  // Clear previous frames first
+
+  // ✅ 发送 packet 到解码器
   int ret = avcodec_send_packet(codec_context_.get(), packet);
-  if (ret < 0 && ret != AVERROR(EAGAIN) && ret != AVERROR_EOF) {
-    return false;  // Error sending packet to decoder
+
+  if (ret < 0) {
+    if (ret == AVERROR(EAGAIN)) {
+      // 解码器缓冲区满，需要先接收帧
+      // 这是正常情况，不记录错误
+    } else if (ret == AVERROR_EOF) {
+      // EOF，正常情况
+    } else {
+      // ✅ CRITICAL: Don't return immediately on send error!
+      // AVERROR_INVALIDDATA is NORMAL for B-frame streams due to packet
+      // reordering. The decoder will buffer these packets and decode them when
+      // reference frames arrive. This matches MPV's behavior (see mpv
+      // f_decoder_wrapper.c:1343-1347).
+
+      // Only log as DEBUG for INVALIDDATA (expected with B-frames), WARN for
+      // others
+      if (ret == AVERROR_INVALIDDATA) {
+        MODULE_DEBUG(LOG_MODULE_DECODER,
+                     "B-frame packet buffered (AVERROR_INVALIDDATA), waiting "
+                     "for references");
+      } else {
+        MODULE_WARN(
+            LOG_MODULE_DECODER,
+            "avcodec_send_packet failed: {} (error code: {}), will still "
+            "try to receive frames",
+            FormatFFmpegError(ret, "send_packet"), ret);
+      }
+      // ✅ Continue to receive frames from internal buffer
+    }
   }
 
-  frames->clear();  // Clear previous frames
+  // ✅ 接收所有可用的帧
+  // IMPORTANT: Always attempt to receive frames, even if send_packet failed!
   while (true) {
     ret = avcodec_receive_frame(codec_context_.get(), workFrame_.get());
-    if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) {
-      break;  // No more frames to receive
+
+    if (ret == AVERROR(EAGAIN)) {
+      // 需要更多数据，正常退出
+      break;
+    } else if (ret == AVERROR_EOF) {
+      // EOF，正常退出
+      break;
     } else if (ret < 0) {
-      return false;  // Error receiving frame
+      // ✅ 记录接收帧失败的详细错误
+      MODULE_ERROR(LOG_MODULE_DECODER,
+                   "avcodec_receive_frame failed: {} (error code: {})",
+                   FormatFFmpegError(ret, "receive_frame"), ret);
+      return false;
     }
 
-    // clone the frame to ensure it is not modified by subsequent calls
-    AVFrame* clone = av_frame_clone(workFrame_.get());
-    if (!clone) {
+    // ✅ CRITICAL FIX: Don't use av_frame_clone() for hardware frames!
+    // av_frame_clone() increments hardware surface refcount without creating
+    // new surfaces, causing pool exhaustion when decoder needs DPB references.
+    // Instead, transfer ownership of workFrame to output (like MPV does).
+
+    // Transfer ownership: workFrame_'s buffer refs → new AVFrame
+    AVFrame* frame = av_frame_alloc();
+    if (!frame) {
       av_frame_unref(workFrame_.get());
-      return false;  // Failed to clone frame
+      MODULE_ERROR(LOG_MODULE_DECODER, "Failed to allocate frame");
+      return false;
     }
 
-    frames->emplace_back(
-        AVFramePtr(clone));  // Add cloned frame to output vector
+    // Move buffer references (not clone!)
+    av_frame_move_ref(frame, workFrame_.get());
+
+    frames->emplace_back(AVFramePtr(frame));
   }
 
   return true;

@@ -249,11 +249,12 @@ RenderPathSelection RenderPathSelector::SelectSoftwareFallback(
 // ==================== 辅助函数 ====================
 
 bool RenderPathSelector::IsHardwareAccelerationEnabled(GlobalConfig* config) {
-  return config->GetBool("render.use_hardware_acceleration", true);
+  return true;
+  // return config->GetBool("render.use_hardware_acceleration", false);
 }
 
 bool RenderPathSelector::IsFallbackAllowed(GlobalConfig* config) {
-  return config->GetBool("render.hardware.allow_fallback", true);
+  return config->GetBool("render.hardware.allow_fallback", false);
 }
 
 }  // namespace zenplay
