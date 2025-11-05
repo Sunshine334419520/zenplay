@@ -37,20 +37,31 @@ Result<void> Decoder::Open(AVCodecParameters* codec_params,
   }
   codec_context_.reset(raw);
 
-  int ret = avcodec_parameters_to_context(codec_context_.get(), codec_params);
-  if (ret < 0) {
-    MODULE_ERROR(LOG_MODULE_DECODER, "Failed to copy codec parameters");
-    codec_context_.reset();
-    return FFmpegErrorToResult(ret, "Copy codec parameters");
-  }
+  // 🔥 CRITICAL: Prepare codec context with proper sequencing
+  // This ensures:
+  // 1. Hardware configuration is done first (OnBeforeOpen)
+  // 2. Parameters are copied (avcodec_parameters_to_context)
+  // 3. get_format callback is fully ready for avcodec_open2
+  //
+  // Order matters because avcodec_parameters_to_context may trigger
+  // get_format callback in some cases. If not prepared, returns
+  // AV_PIX_FMT_NONE.
 
-  // ✅ 调用钩子函数：让子类在 avcodec_open2 之前配置（例如硬件加速）
+  // Step 1: Call OnBeforeOpen (subclasses configure hardware acceleration)
   auto hook_result = OnBeforeOpen(codec_context_.get());
   if (!hook_result.IsOk()) {
     MODULE_ERROR(LOG_MODULE_DECODER, "OnBeforeOpen failed: {}",
                  hook_result.Message());
     codec_context_.reset();
     return hook_result;
+  }
+
+  // Step 2: Copy codec parameters (now get_format is ready)
+  int ret = avcodec_parameters_to_context(codec_context_.get(), codec_params);
+  if (ret < 0) {
+    MODULE_ERROR(LOG_MODULE_DECODER, "Failed to copy codec parameters");
+    codec_context_.reset();
+    return FFmpegErrorToResult(ret, "Copy codec parameters");
   }
 
   ret = avcodec_open2(codec_context_.get(), codec, options);
