@@ -97,6 +97,7 @@ class D3D11Renderer : public Renderer {
   // FFmpeg 使用纹理池（通常 4-16 个纹理），需要为每个纹理缓存对应的 SRV
   struct SRVCache {
     ID3D11Texture2D* texture;
+    UINT array_slice;
     Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> y_srv;
     Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> uv_srv;
   };

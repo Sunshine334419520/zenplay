@@ -88,6 +88,23 @@ Result<AVPacket*> Demuxer::ReadPacket() {
     return ReadPacket();  // 递归读取下一个数据包
   }
 
+  // ✅ 添加调试日志：输出 demuxer 读取的 packet PTS/DTS
+  if (packet->stream_index == active_video_stream_index_) {
+    AVStream* stream = format_context_->streams[packet->stream_index];
+    double pts_ms = packet->pts != AV_NOPTS_VALUE
+                        ? packet->pts * av_q2d(stream->time_base) * 1000.0
+                        : -1.0;
+    double dts_ms = packet->dts != AV_NOPTS_VALUE
+                        ? packet->dts * av_q2d(stream->time_base) * 1000.0
+                        : -1.0;
+
+    MODULE_DEBUG(LOG_MODULE_DEMUXER,
+                 "📦 Demux video packet: pts={}, dts={}, reorder_offset={}, "
+                 "pts_ms={:.2f}, dts_ms={:.2f}, size={}, flags={}",
+                 packet->pts, packet->dts, (packet->pts - packet->dts), pts_ms,
+                 dts_ms, packet->size, packet->flags);
+  }
+
   return Result<AVPacket*>::Ok(packet);
 }
 

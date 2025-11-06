@@ -86,15 +86,26 @@ class VideoPlayer {
   bool PushFrame(AVFramePtr frame, const FrameTimestamp& timestamp);
 
   /**
-   * @brief 推送视频帧到播放队列（带超时的阻塞版本）
-   * @param frame 视频帧
+   * @brief 推送视频帧（具有背压的阻塞版本，但可中断）
+   *
+   * 当队列接近满时会自动阻塞，但如果以下情况发生会立即返回：
+   * - ShouldStop() 变为 true（程序关闭）
+   * - ShouldPause() 变为 true（用户暂停）
+   * - timeout_ms 超时
+   *
+   * 这确保了 Seek、Pause、Stop 等操作永远不会被阻塞。
+   *
+   * @param frame 视频帧指针
    * @param timestamp 时间戳信息
-   * @param timeout_ms 超时时间（毫秒），0 表示非阻塞
-   * @return 成功返回true，超时或停止返回false
+   * @param max_wait_ms 最大等待时间（毫秒）
+   *   - 0: 无限等待（但会响应 ShouldStop/ShouldPause）
+   *   - >0: 有限等待，推荐 500ms
+   * @return true 推送成功
+   *         false 超时、停止、暂停
    */
-  bool PushFrameTimeout(AVFramePtr frame,
-                        const FrameTimestamp& timestamp,
-                        int timeout_ms = 100);
+  bool PushFrameBlocking(AVFramePtr frame,
+                         const FrameTimestamp& timestamp,
+                         int max_wait_ms = 0);
 
   /**
    * @brief 清空视频帧队列
@@ -127,10 +138,33 @@ class VideoPlayer {
    */
   using VideoFrame = MediaFrame;
 
+  bool WaitForQueueBelow(size_t threshold, int timeout_ms);
+  size_t GetMaxQueueSize() const;
+
   /**
    * @brief 视频渲染线程主函数
    */
   void VideoRenderThread();
+
+  /**
+   * @brief 内部：等待队列有空间（可被打断）
+   *
+   * 等待过程中会检查以下条件，任何一个满足就立即返回：
+   * - 队列空间足够
+   * - ShouldStop() 为 true
+   * - ShouldPause() 为 true
+   * - 超时
+   *
+   * @param lock 已持有的 frame_queue_mutex_ 锁
+   * @param timeout_ms 最大等待时间（毫秒）
+   *   - 0: 无限等待（直到条件满足或被中断）
+   *   - >0: 有限等待
+   *   - <0: 无等待（立即检查）
+   * @return true 队列有空间且系统未停止/暂停
+   *         false 超时、停止、暂停
+   */
+  bool WaitForQueueSpace_Locked(std::unique_lock<std::mutex>& lock,
+                                int timeout_ms);
 
   /**
    * @brief 计算帧显示时间
@@ -191,6 +225,9 @@ class VideoPlayer {
 
   // 播放时间管理
   std::chrono::steady_clock::time_point play_start_time_;  // 播放开始时间
+
+  // 背压日志记录时间（避免日志过多）
+  std::chrono::steady_clock::time_point last_throttle_log_time_;
 };
 
 }  // namespace zenplay

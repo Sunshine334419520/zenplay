@@ -75,6 +75,11 @@ void VideoPlayer::Stop() {
 void VideoPlayer::Pause() {
   // 暂停由 PlayerStateManager 统一管理
   // VideoRenderThread 会通过 ShouldPause() 和 WaitForResume() 自动暂停
+
+  // ✅ 同时唤醒可能在等待队列空间的解码线程
+  // 这样 PushFrameBlocking 中的 lambda 就能检查 ShouldPause()
+  frame_consumed_.notify_all();
+
   MODULE_INFO(LOG_MODULE_VIDEO, "VideoPlayer paused");
 }
 
@@ -119,40 +124,166 @@ bool VideoPlayer::PushFrame(AVFramePtr frame, const FrameTimestamp& timestamp) {
   return true;
 }
 
-bool VideoPlayer::PushFrameTimeout(AVFramePtr frame,
-                                   const FrameTimestamp& timestamp,
-                                   int timeout_ms) {
+bool VideoPlayer::PushFrameBlocking(AVFramePtr frame,
+                                    const FrameTimestamp& timestamp,
+                                    int max_wait_ms) {
+  // 前置检查：如果已经停止，立即返回
   if (!frame || state_manager_->ShouldStop()) {
     return false;
   }
 
   std::unique_lock<std::mutex> lock(frame_queue_mutex_);
 
-  // ✅ 等待队列有空间（使用条件变量替代 sleep 轮询）
-  if (timeout_ms > 0) {
-    bool success = frame_consumed_.wait_for(
-        lock, std::chrono::milliseconds(timeout_ms), [this] {
-          return state_manager_->ShouldStop() ||
-                 frame_queue_.size() <
-                     static_cast<size_t>(config_.max_frame_queue_size);
-        });
+  // ========================================
+  // 关键：等待队列有空间（可被中断）
+  // ========================================
+  bool has_space = WaitForQueueSpace_Locked(lock, max_wait_ms);
 
-    if (!success || state_manager_->ShouldStop()) {
-      return false;  // 超时或停止
-    }
-  } else {
-    // timeout_ms == 0，非阻塞模式
-    if (frame_queue_.size() >=
-        static_cast<size_t>(config_.max_frame_queue_size)) {
-      return false;
-    }
+  // 任何中断信号都导致返回 false
+  if (!has_space || state_manager_->ShouldStop() ||
+      state_manager_->ShouldPause()) {
+    return false;
   }
 
+  // ========================================
+  // 双重检查：再次确认系统状态
+  // ========================================
+  if (state_manager_->ShouldStop() || state_manager_->ShouldPause()) {
+    return false;
+  }
+
+  // 推送帧
   auto media_frame = std::make_unique<MediaFrame>(std::move(frame), timestamp);
   frame_queue_.push(std::move(media_frame));
   frame_available_.notify_one();
 
+  MODULE_TRACE(LOG_MODULE_VIDEO,
+               "Frame pushed via PushFrameBlocking, queue_size={}",
+               frame_queue_.size());
+
   return true;
+}
+
+bool VideoPlayer::WaitForQueueSpace_Locked(std::unique_lock<std::mutex>& lock,
+                                           int timeout_ms) {
+  // ========================================
+  // 背压阈值：75% 的队列容量
+  // ========================================
+  const size_t max_queue = GetMaxQueueSize();
+  const size_t high_watermark = max_queue * 3 / 4;
+
+  // ========================================
+  // Lambda：检查是否有空间或被中断
+  // 注意：这个 lambda 会被反复调用，每次都检查最新状态
+  // ========================================
+  auto has_space_or_interrupted = [this, high_watermark, max_queue]() {
+    // 1. 系统停止？立即返回（让 DecodeTask 退出）
+    if (state_manager_->ShouldStop()) {
+      MODULE_DEBUG(LOG_MODULE_VIDEO,
+                   "WaitForQueueSpace interrupted: ShouldStop=true");
+      return true;
+    }
+
+    // 2. 系统暂停？立即返回（让 DecodeTask 检查暂停）
+    if (state_manager_->ShouldPause()) {
+      MODULE_DEBUG(LOG_MODULE_VIDEO,
+                   "WaitForQueueSpace interrupted: ShouldPause=true");
+      return true;
+    }
+
+    // 3. 队列有空间？继续推送
+    if (frame_queue_.size() < high_watermark) {
+      return true;
+    }
+
+    // 4. 其他情况：继续等待
+    return false;
+  };
+
+  // ========================================
+  // 执行等待
+  // ========================================
+  if (timeout_ms < 0) {
+    // 无等待：立即检查并返回
+    return has_space_or_interrupted();
+
+  } else if (timeout_ms == 0) {
+    // 无限等待，但会响应中断信号
+    MODULE_TRACE(LOG_MODULE_VIDEO,
+                 "Waiting for queue space (unlimited), "
+                 "current={}/{}, threshold={}",
+                 frame_queue_.size(), max_queue, high_watermark);
+
+    frame_consumed_.wait(lock, has_space_or_interrupted);
+
+    // 返回是否成功（有空间且未被中断）
+    return has_space_or_interrupted();
+
+  } else {
+    // 有限等待
+    MODULE_TRACE(LOG_MODULE_VIDEO,
+                 "Waiting for queue space ({}ms), "
+                 "current={}/{}, threshold={}",
+                 timeout_ms, frame_queue_.size(), max_queue, high_watermark);
+
+    bool success = frame_consumed_.wait_for(
+        lock, std::chrono::milliseconds(timeout_ms), has_space_or_interrupted);
+
+    if (!success) {
+      // 超时
+      auto now = std::chrono::steady_clock::now();
+      auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                         now - last_throttle_log_time_)
+                         .count();
+
+      // 每 2 秒打一次日志，避免日志爆炸
+      if (elapsed > 2000) {
+        MODULE_WARN(LOG_MODULE_VIDEO,
+                    "Queue space wait timeout after {}ms, "
+                    "queue_size={}, threshold={}",
+                    timeout_ms, frame_queue_.size(), high_watermark);
+        last_throttle_log_time_ = now;
+      }
+      return false;  // 超时
+    }
+
+    return has_space_or_interrupted();
+  }
+}
+
+bool VideoPlayer::WaitForQueueBelow(size_t threshold, int timeout_ms) {
+  if (!state_manager_ || state_manager_->ShouldStop()) {
+    return false;
+  }
+
+  const size_t max_queue = GetMaxQueueSize();
+  const size_t effective_threshold = std::max<size_t>(
+      size_t{1}, std::min(threshold > 0 ? threshold : max_queue, max_queue));
+
+  std::unique_lock<std::mutex> lock(frame_queue_mutex_);
+  auto queue_ready = [this, effective_threshold]() {
+    return state_manager_->ShouldStop() ||
+           frame_queue_.size() < effective_threshold;
+  };
+
+  if (timeout_ms < 0) {
+    frame_consumed_.wait(lock, queue_ready);
+  } else {
+    if (!frame_consumed_.wait_for(lock, std::chrono::milliseconds(timeout_ms),
+                                  queue_ready)) {
+      return false;
+    }
+  }
+
+  if (state_manager_->ShouldStop()) {
+    return false;
+  }
+
+  return frame_queue_.size() < effective_threshold;
+}
+
+size_t VideoPlayer::GetMaxQueueSize() const {
+  return static_cast<size_t>(config_.max_frame_queue_size);
 }
 
 void VideoPlayer::ClearFrames() {

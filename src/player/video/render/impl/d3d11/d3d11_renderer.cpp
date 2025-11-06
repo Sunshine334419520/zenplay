@@ -2,6 +2,8 @@
 
 #include <fmt/core.h>
 
+#include <cstdint>
+
 #include "player/common/common_def.h"
 #include "player/common/log_manager.h"
 #include "player/video/render/impl/d3d11/d3d11_context.h"
@@ -93,11 +95,9 @@ bool D3D11Renderer::RenderFrame(AVFrame* frame) {
 
   // 🔑 零拷贝关键：从 AVFrame 提取 D3D11 纹理
   // frame->data[0] 存储的是 ID3D11Texture2D*
-  // frame->data[1] 存储的是纹理数组索引（通常为 0）
+  // frame->data[1] 存储的是纹理数组索引（NV12 纹理可能是数组资源）
   ID3D11Texture2D* decoded_texture =
       reinterpret_cast<ID3D11Texture2D*>(frame->data[0]);
-  int texture_index =
-      static_cast<int>(reinterpret_cast<intptr_t>(frame->data[1]));
 
   if (!decoded_texture) {
     MODULE_ERROR(LOG_MODULE_RENDERER, "Failed to get D3D11 texture from frame");
@@ -131,13 +131,15 @@ bool D3D11Renderer::RenderFrame(AVFrame* frame) {
 
 Result<void> D3D11Renderer::CreateShaderResourceViews(AVFrame* frame) {
   ID3D11Texture2D* texture = reinterpret_cast<ID3D11Texture2D*>(frame->data[0]);
+  const UINT array_slice =
+      static_cast<UINT>(reinterpret_cast<uintptr_t>(frame->data[1]));
 
   // 🚀 性能优化：SRV 池 - 为 FFmpeg 纹理池中的每个纹理缓存 SRV
   // FFmpeg 通常使用 4-16 个纹理的池，需要为每个纹理维护对应的 SRV
 
   // 1. 先在池中查找是否已缓存
   for (auto& cache : srv_pool_) {
-    if (cache.texture == texture) {
+    if (cache.texture == texture && cache.array_slice == array_slice) {
       // 缓存命中：复用现有 SRV
       srv_cache_hits_++;
       y_srv_ = cache.y_srv;
@@ -160,18 +162,25 @@ Result<void> D3D11Renderer::CreateShaderResourceViews(AVFrame* frame) {
   srv_cache_misses_++;
 
   MODULE_DEBUG(LOG_MODULE_RENDERER,
-               "🔍 Creating NEW SRV (cache miss #{}): texture ptr = {}, pool "
-               "size will be: {}",
-               srv_cache_misses_, (void*)texture, srv_pool_.size() + 1);
+               "🔍 Creating NEW SRV (cache miss #{}): texture ptr = {}, "
+               "slice = {}, pool size will be: {}",
+               srv_cache_misses_, (void*)texture, array_slice,
+               srv_pool_.size() + 1);
 
   ID3D11Device* device = d3d11_context_->GetDevice();
 
+  D3D11_TEXTURE2D_DESC texture_desc;
+  texture->GetDesc(&texture_desc);
+
+  if (array_slice >= texture_desc.ArraySize) {
+    return Result<void>::Err(
+        ErrorCode::kRenderError,
+        fmt::format("Invalid array slice {} for texture (ArraySize={})",
+                    array_slice, texture_desc.ArraySize));
+  }
+
   // 🔍 只在第一次验证设备和 BindFlags（避免每次缓存未命中都执行）
   if (srv_cache_misses_ == 1) {
-    // 获取纹理描述
-    D3D11_TEXTURE2D_DESC texture_desc;
-    texture->GetDesc(&texture_desc);
-
     MODULE_INFO(LOG_MODULE_RENDERER,
                 "🔍 First texture: format={}, size={}x{}, bind_flags=0x{:X}",
                 static_cast<int>(texture_desc.Format), texture_desc.Width,
@@ -221,13 +230,22 @@ Result<void> D3D11Renderer::CreateShaderResourceViews(AVFrame* frame) {
   // 创建新的 SRV 缓存条目
   SRVCache new_cache;
   new_cache.texture = texture;
+  new_cache.array_slice = array_slice;
 
   // 创建 Y 平面的 SRV
   D3D11_SHADER_RESOURCE_VIEW_DESC y_srv_desc = {};
   y_srv_desc.Format = DXGI_FORMAT_R8_UNORM;
-  y_srv_desc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
-  y_srv_desc.Texture2D.MipLevels = 1;
-  y_srv_desc.Texture2D.MostDetailedMip = 0;
+  if (texture_desc.ArraySize > 1) {
+    y_srv_desc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2DARRAY;
+    y_srv_desc.Texture2DArray.MostDetailedMip = 0;
+    y_srv_desc.Texture2DArray.MipLevels = 1;
+    y_srv_desc.Texture2DArray.FirstArraySlice = array_slice;
+    y_srv_desc.Texture2DArray.ArraySize = 1;
+  } else {
+    y_srv_desc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
+    y_srv_desc.Texture2D.MostDetailedMip = 0;
+    y_srv_desc.Texture2D.MipLevels = 1;
+  }
 
   HRESULT hr = device->CreateShaderResourceView(
       texture, &y_srv_desc, new_cache.y_srv.ReleaseAndGetAddressOf());
@@ -241,9 +259,17 @@ Result<void> D3D11Renderer::CreateShaderResourceViews(AVFrame* frame) {
   // 创建 UV 平面的 SRV（色度子采样 4:2:0，宽高各为 Y 的一半）
   D3D11_SHADER_RESOURCE_VIEW_DESC uv_srv_desc = {};
   uv_srv_desc.Format = DXGI_FORMAT_R8G8_UNORM;
-  uv_srv_desc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
-  uv_srv_desc.Texture2D.MipLevels = 1;
-  uv_srv_desc.Texture2D.MostDetailedMip = 0;
+  if (texture_desc.ArraySize > 1) {
+    uv_srv_desc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2DARRAY;
+    uv_srv_desc.Texture2DArray.MostDetailedMip = 0;
+    uv_srv_desc.Texture2DArray.MipLevels = 1;
+    uv_srv_desc.Texture2DArray.FirstArraySlice = array_slice;
+    uv_srv_desc.Texture2DArray.ArraySize = 1;
+  } else {
+    uv_srv_desc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
+    uv_srv_desc.Texture2D.MostDetailedMip = 0;
+    uv_srv_desc.Texture2D.MipLevels = 1;
+  }
 
   hr = device->CreateShaderResourceView(
       texture, &uv_srv_desc, new_cache.uv_srv.ReleaseAndGetAddressOf());

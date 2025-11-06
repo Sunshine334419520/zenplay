@@ -25,6 +25,12 @@ struct AVCodecCtxDeleter {
 
 class Decoder {
  public:
+  struct DecodeStats {
+    bool had_invalid_data =
+        false;  // true if avcodec_send_packet returned AVERROR_INVALIDDATA
+    int send_error_code = 0;  // last error code returned by avcodec_send_packet
+  };
+
   Decoder();
   virtual ~Decoder();
 
@@ -61,6 +67,8 @@ class Decoder {
    */
   bool Flush(std::vector<AVFramePtr>* frames);
 
+  const DecodeStats& last_decode_stats() const { return last_decode_stats_; }
+
   bool opened() const { return opened_; }
   AVMediaType codec_type() const { return codec_type_; }
 
@@ -91,6 +99,7 @@ class Decoder {
   AVFramePtr workFrame_ = nullptr;
   AVMediaType codec_type_ = AVMEDIA_TYPE_UNKNOWN;
   bool opened_ = false;
+  DecodeStats last_decode_stats_{};
 };
 
 }  // namespace zenplay

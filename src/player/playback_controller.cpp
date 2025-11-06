@@ -396,95 +396,140 @@ void PlaybackController::VideoDecodeTask() {
   AVPacket* packet = nullptr;
   std::vector<AVFramePtr> frames;
 
+  // ========================================
+  // 配置常数：等待队列空间的超时时间
+  // 设为 500ms，这样即使队列满，DecodeTask 也会每 500ms 检查一次
+  // ShouldPause/ShouldStop
+  // ========================================
+  constexpr int kPushFrameTimeoutMs = 500;
+
   while (!state_manager_->ShouldStop()) {
+    // ========================================
     // 检查暂停状态
+    // ========================================
     if (state_manager_->ShouldPause()) {
+      MODULE_DEBUG(LOG_MODULE_PLAYER, "VideoDecodeTask paused");
       state_manager_->WaitForResume();
+      // 唤醒等待的 PushFrameBlocking
+      if (video_player_) {
+        video_player_->Resume();  // 这会 notify_all()
+      }
       continue;
     }
 
-    // ✅ 使用条件变量等待，替代 sleep 轮询
-    // PushFrameTimeout 内部会阻塞直到队列有空间
-
-    // ✅ BlockingQueue::Pop 会阻塞直到有数据或队列停止
+    // ========================================
+    // 获取压缩包
+    // ========================================
+    // Pop 会阻塞，但一旦调用了 Stop()，会立即返回
     if (!video_packet_queue_.Pop(packet)) {
+      MODULE_INFO(LOG_MODULE_PLAYER,
+                  "VideoDecodeTask: Pop returned false (queue stopped)");
       break;  // 队列已停止，退出循环
     }
 
+    // ========================================
+    // 处理 Flush 或解码
+    // ========================================
     if (!packet) {
+      // Flush 信号
+      MODULE_DEBUG(LOG_MODULE_PLAYER, "VideoDecodeTask: Flushing decoder");
       video_decoder_->Flush(&frames);
+    } else {
+      // 解码
+      TIMER_START(video_decode);
+      bool decode_success = video_decoder_->Decode(packet, &frames);
+      auto decode_time = TIMER_END_MS(video_decode);
 
-      for (auto& frame : frames) {
-        if (video_player_) {
-          // 创建时间戳信息
-          VideoPlayer::FrameTimestamp timestamp;
-          timestamp.pts = frame->pts;
-          timestamp.dts = frame->pkt_dts;
-          // 从视频流获取时间基准
-          if (demuxer_ && demuxer_->active_video_stream_index() >= 0) {
-            AVStream* stream = demuxer_->findStreamByIndex(
-                demuxer_->active_video_stream_index());
-            if (stream) {
-              timestamp.time_base = stream->time_base;
-            }
+      // 统计
+      uint32_t frame_queue_size =
+          video_player_ ? video_player_->GetQueueSize() : 0;
+      STATS_UPDATE_DECODE(true, decode_success, decode_time, frame_queue_size);
+
+      if (!decode_success && packet) {
+        MODULE_WARN(LOG_MODULE_PLAYER, "Decode failed for packet, size={}",
+                    packet->size);
+      }
+
+      // 诊断信息
+      const auto& decode_stats = video_decoder_->last_decode_stats();
+      if (decode_stats.had_invalid_data && packet) {
+        double pts_ms = -1.0;
+        double dts_ms = -1.0;
+        AVRational time_base{1, 1};
+        if (demuxer_ && demuxer_->active_video_stream_index() >= 0) {
+          if (AVStream* stream = demuxer_->findStreamByIndex(
+                  demuxer_->active_video_stream_index())) {
+            time_base = stream->time_base;
           }
-          video_player_->PushFrameTimeout(std::move(frame), timestamp, 100);
+        }
+
+        if (packet->pts != AV_NOPTS_VALUE) {
+          pts_ms = packet->pts * av_q2d(time_base) * 1000.0;
+        }
+        if (packet->dts != AV_NOPTS_VALUE) {
+          dts_ms = packet->dts * av_q2d(time_base) * 1000.0;
+        }
+
+        uint32_t video_queue_size =
+            video_player_ ? video_player_->GetQueueSize() : 0;
+        uint32_t packet_queue_size = video_packet_queue_.Size();
+
+        MODULE_DEBUG(
+            LOG_MODULE_PLAYER,
+            "AVERROR_INVALIDDATA: pts={}, dts={}, pts_ms={:.2f}, "
+            "dts_ms={:.2f}, size={}, video_frame_queue={}, packet_queue={}",
+            packet->pts, packet->dts, pts_ms, dts_ms, packet->size,
+            video_queue_size, packet_queue_size);
+      }
+    }
+
+    // ========================================
+    // 推送所有解码得到的帧
+    // ========================================
+    for (auto& frame : frames) {
+      if (video_player_) {
+        // 创建时间戳
+        VideoPlayer::FrameTimestamp timestamp;
+        timestamp.pts = frame->pts;
+        timestamp.dts = frame->pkt_dts;
+        if (demuxer_ && demuxer_->active_video_stream_index() >= 0) {
+          if (AVStream* stream = demuxer_->findStreamByIndex(
+                  demuxer_->active_video_stream_index())) {
+            timestamp.time_base = stream->time_base;
+          }
+        }
+
+        // ========================================
+        // 关键：推送帧，但有超时
+        // ========================================
+        // timeout = 500ms，这样即使队列满，也会每 500ms 返回一次，
+        // 让 DecodeTask 可以检查 ShouldPause 和 ShouldStop
+        bool push_success = video_player_->PushFrameBlocking(
+            std::move(frame), timestamp, kPushFrameTimeoutMs);
+
+        if (!push_success) {
+          // 超时或被中断（暂停/停止）
+          // 原因 1：队列仍然满 → 下一轮循环会重新尝试
+          // 原因 2：ShouldPause=true → 下一轮循环会进入暂停等待
+          // 原因 3：ShouldStop=true → 下一轮循环会退出
+
+          // 这里我们只记录日志，然后继续
+          MODULE_DEBUG(LOG_MODULE_PLAYER,
+                       "PushFrameBlocking timeout or interrupted, "
+                       "will retry next iteration");
         }
       }
+    }
+    frames.clear();
+
+    // Flush 时退出
+    if (!packet) {
+      MODULE_INFO(LOG_MODULE_PLAYER, "VideoDecodeTask: Exiting after flush");
       break;
     }
-
-    // 解码统计
-    TIMER_START(video_decode);
-    bool decode_success = video_decoder_->Decode(packet, &frames);
-    auto decode_time = TIMER_END_MS(video_decode);
-
-    // 更新解码统计（使用帧队列大小，而不是packet队列）
-    uint32_t frame_queue_size =
-        video_player_ ? video_player_->GetQueueSize() : 0;
-    STATS_UPDATE_DECODE(true, decode_success, decode_time, frame_queue_size);
-
-    if (decode_success) {
-      for (auto& frame : frames) {
-        if (video_player_) {
-          // 创建时间戳信息
-          VideoPlayer::FrameTimestamp timestamp;
-          // ✅ 直接使用 frame->pts（FFmpeg 解码器保证对 B 帧正确）
-          // 参考 MPV 实现：对于硬件解码，frame->pts 总是正确的显示时间
-          // best_effort_timestamp 对于 B 帧可能错误地使用 DTS 推算，导致
-          // 时间戳跳变（如 pts=52440 但 best_effort=158940，偏差 106500ms）
-          timestamp.pts = frame->pts;
-          timestamp.dts = frame->pkt_dts;  // 仅供调试，显示时使用 pts
-
-          // 从视频流获取时间基准
-          if (demuxer_ && demuxer_->active_video_stream_index() >= 0) {
-            AVStream* stream = demuxer_->findStreamByIndex(
-                demuxer_->active_video_stream_index());
-            if (stream) {
-              timestamp.time_base = stream->time_base;
-            }
-          }
-
-          // 调试日志：显示pts/dts差异（B帧重排序会导致差异）
-          // 对于 B 帧，reorder_offset 会是负数（pts < dts）
-          MODULE_DEBUG(
-              LOG_MODULE_PLAYER,
-              "Decoded video frame: pts={}, dts={}, reorder_offset={}, "
-              "time_base={}/{}, pts_ms={:.2f}",
-              timestamp.pts, timestamp.dts, (timestamp.pts - timestamp.dts),
-              timestamp.time_base.num, timestamp.time_base.den,
-              timestamp.pts * av_q2d(timestamp.time_base) * 1000.0);
-
-          // ✅ 使用 PushFrameTimeout，阻塞等待队列有空间（100ms超时）
-          video_player_->PushFrameTimeout(std::move(frame), timestamp, 100);
-        }
-      }
-    } else {
-      MODULE_WARN(LOG_MODULE_PLAYER, "Video decode failed for a packet");
-    }
-
-    av_packet_free(&packet);
   }
+
+  MODULE_INFO(LOG_MODULE_PLAYER, "VideoDecodeTask: Thread exiting");
 }
 
 void PlaybackController::AudioDecodeTask() {

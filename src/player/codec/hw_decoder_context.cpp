@@ -162,7 +162,7 @@ Result<void> HWDecoderContext::InitGenericHWAccel(AVCodecContext* ctx,
   // ✅ 调整池大小（参考 MPV hwdec_extra_frames）
   // FFmpeg 已经计算了基础池大小，我们只需要加上额外的缓冲
   if (frames_ctx->initial_pool_size > 0) {
-    int extra_frames = 6;  // 参考 MPV 的 hwdec_extra_frames 默认值
+    int extra_frames = 12;  // 参考 MPV 的 hwdec_extra_frames 并加大冗余
     frames_ctx->initial_pool_size += extra_frames;
 
     MODULE_INFO(LOG_MODULE_DECODER,

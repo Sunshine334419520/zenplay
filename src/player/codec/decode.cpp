@@ -98,7 +98,8 @@ bool zenplay::Decoder::Decode(AVPacket* packet,
     return false;  // Decoder not opened
   }
 
-  frames->clear();  // Clear previous frames first
+  last_decode_stats_ = DecodeStats{};  // reset diagnostics for this invocation
+  frames->clear();                     // Clear previous frames first
 
   // ✅ 发送 packet 到解码器
   int ret = avcodec_send_packet(codec_context_.get(), packet);
@@ -110,6 +111,7 @@ bool zenplay::Decoder::Decode(AVPacket* packet,
     } else if (ret == AVERROR_EOF) {
       // EOF，正常情况
     } else {
+      last_decode_stats_.send_error_code = ret;
       // ✅ CRITICAL: Don't return immediately on send error!
       // AVERROR_INVALIDDATA is NORMAL for B-frame streams due to packet
       // reordering. The decoder will buffer these packets and decode them when
@@ -119,9 +121,29 @@ bool zenplay::Decoder::Decode(AVPacket* packet,
       // Only log as DEBUG for INVALIDDATA (expected with B-frames), WARN for
       // others
       if (ret == AVERROR_INVALIDDATA) {
+        last_decode_stats_.had_invalid_data = true;
+        int64_t pkt_pts = packet ? packet->pts : AV_NOPTS_VALUE;
+        int64_t pkt_dts = packet ? packet->dts : AV_NOPTS_VALUE;
+        int pkt_flags = packet ? packet->flags : 0;
+        int pkt_size = packet ? packet->size : 0;
+        double pts_ms = -1.0;
+        double dts_ms = -1.0;
+        if (codec_context_) {
+          AVRational tb = codec_context_->time_base.num != 0
+                              ? codec_context_->time_base
+                              : AVRational{1, 1000};
+          if (pkt_pts != AV_NOPTS_VALUE) {
+            pts_ms = pkt_pts * av_q2d(tb) * 1000.0;
+          }
+          if (pkt_dts != AV_NOPTS_VALUE) {
+            dts_ms = pkt_dts * av_q2d(tb) * 1000.0;
+          }
+        }
         MODULE_DEBUG(LOG_MODULE_DECODER,
                      "B-frame packet buffered (AVERROR_INVALIDDATA), waiting "
-                     "for references");
+                     "for references. pts={}, dts={}, pts_ms={:.2f}, "
+                     "dts_ms={:.2f}, size={}, flags=0x{:X}",
+                     pkt_pts, pkt_dts, pts_ms, dts_ms, pkt_size, pkt_flags);
       } else {
         MODULE_WARN(
             LOG_MODULE_DECODER,
