@@ -160,14 +160,43 @@ Result<void> HWDecoderContext::InitGenericHWAccel(AVCodecContext* ctx,
               frames_ctx->height, frames_ctx->initial_pool_size);
 
   // ✅ 调整池大小（参考 MPV hwdec_extra_frames）
-  // FFmpeg 已经计算了基础池大小，我们只需要加上额外的缓冲
+  // FFmpeg 已经计算了基础池大小，我们需要加上额外的缓冲
+  //
+  // 为什么需要 +12 而不是 MPV 的 +6？
+  // ════════════════════════════════════════════════════════════
+  // MPV 直接渲染帧（解码 → 渲染 → 释放），所以 +6 缓冲足够
+  //
+  // ZenPlay 使用 frame_queue 缓冲层（解码 → 队列 → 渲染 → 释放），
+  // 因此帧的生命周期更长，需要更多硬件内存：
+  //
+  // 1. frame_queue 背压延迟 (解码被暂停，但硬件中有帧)  → +4-6 帧
+  // 2. 异步并发引用 (DecodeTask 和 RenderThread 冲突)    → +2-3 帧
+  // 3. D3D11 多缓冲渲染                                   → +2-3 帧
+  // 4. Seek 切换时的瞬间冲突                             → +1-2 帧
+  //
+  // 总和: 6 + 3 + 3 + 2 = 14 帧 ≈ 12 帧（保守估计）
+  // ════════════════════════════════════════════════════════════
+
   if (frames_ctx->initial_pool_size > 0) {
-    int extra_frames = 12;  // 参考 MPV 的 hwdec_extra_frames 并加大冗余
+    // 基础缓冲 (与 MPV 相同概念)
+    int base_extra = 6;
+
+    // ZenPlay 特定的额外缓冲 (因为有 frame_queue)
+    // 这个可以根据 frame_queue 的大小动态调整
+    // 假设 frame_queue 最大容量为 30（定义在 video_player.h）
+    int queue_extra = 2;  // frame_queue 导致的额外缓冲
+
+    int extra_frames = base_extra + queue_extra;
+
+    int base_pool_size = frames_ctx->initial_pool_size;
     frames_ctx->initial_pool_size += extra_frames;
 
-    MODULE_INFO(LOG_MODULE_DECODER,
-                "Adjusted pool_size: {} (FFmpeg base + {} extra)",
-                frames_ctx->initial_pool_size, extra_frames);
+    MODULE_INFO(
+        LOG_MODULE_DECODER,
+        "📊 Pool size analysis: base={}, extra={} (base:{} + queue:{}), "
+        "final={}",
+        base_pool_size, extra_frames, base_extra, queue_extra,
+        frames_ctx->initial_pool_size);
   } else {
     MODULE_INFO(LOG_MODULE_DECODER,
                 "Pool size = 0 (dynamic allocation enabled by FFmpeg)");
