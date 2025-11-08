@@ -90,6 +90,33 @@ class AudioPlayer {
   void Resume();
 
   /**
+   * @brief Seek 前的准备：清空缓冲、队列
+   *
+   * 职责：
+   * - Pause 播放
+   * - 清空硬件缓冲
+   * - 清空重采样缓冲
+   * - 清空帧队列
+   * - 重置时间戳
+   *
+   * 调用后：
+   * - 所有音频缓冲已清空
+   * - 准备好进行 Seek
+   */
+  void PreSeek();
+
+  /**
+   * @brief Seek 后的初始化
+   *
+   * 职责：
+   * - 如果目标状态是 Playing，则恢复播放
+   * - 如果目标状态是 Paused，保持暂停
+   *
+   * @param target_state 目标播放状态
+   */
+  void PostSeek(PlayerStateManager::PlayerState target_state);
+
+  /**
    * @brief 设置音量
    * @param volume 音量值 (0.0 - 1.0)
    */

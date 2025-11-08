@@ -69,6 +69,16 @@ class D3D11Renderer : public Renderer {
   const char* GetRendererName() const override;
 
   /**
+   * @brief 清空所有 SRV 缓存（Seek 时调用）
+   *
+   * 防止 Seek 后使用野指针。具体来说：
+   * - Seek 时 FFmpeg 释放旧的硬件纹理
+   * - 如果不清空 SRV 缓存中的旧指针
+   * - 新纹理恰好重用内存地址 → 野指针命中 → 崩溃
+   */
+  void ClearCaches() override;
+
+  /**
    * @brief 设置共享的 D3D11 设备（来自硬件解码器）
    *
    * @param device 解码器使用的 D3D11 设备

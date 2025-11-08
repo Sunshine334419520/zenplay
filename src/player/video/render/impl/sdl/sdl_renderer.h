@@ -28,6 +28,7 @@ class SDLRenderer : public Renderer {
   void OnResize(int width, int height) override;
   void Cleanup() override;
   const char* GetRendererName() const override;
+  void ClearCaches() override;
 
  private:
   // Initialize SDL subsystems

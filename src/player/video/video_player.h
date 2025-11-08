@@ -78,6 +78,36 @@ class VideoPlayer {
   void Resume();
 
   /**
+   * @brief Seek 前的准备：清空状态、缓存、渲染器资源
+   *
+   * 职责：
+   * - 暂停渲染（Pause）
+   * - 等待队列真正变空（WaitForQueueEmpty）
+   * - 清空帧队列（ClearFrames）
+   * - 通知 renderer 清空缓存（renderer_->ClearCaches）
+   *
+   * 调用后：
+   * - 所有帧队列已清空
+   * - 所有渲染缓存已清空
+   * - 准备好进行 Demuxer Seek
+   */
+  void PreSeek();
+
+  /**
+   * @brief Seek 后的初始化：根据目标状态恢复播放
+   *
+   * 职责：
+   * - 如果目标状态是 Playing，则调用 Resume()
+   * - 如果目标状态是 Paused，保持暂停
+   * - 准备好接收新位置的帧
+   *
+   * @param target_state 目标播放状态
+   * 调用前：Demuxer、Decoder 已完成 Seek
+   * 调用后：准备好接收新位置的帧
+   */
+  void PostSeek(PlayerStateManager::PlayerState target_state);
+
+  /**
    * @brief 推送视频帧到播放队列
    * @param frame 视频帧
    * @param timestamp 时间戳信息

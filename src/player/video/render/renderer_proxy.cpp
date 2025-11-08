@@ -61,4 +61,8 @@ const char* RendererProxy::GetRendererName() const {
   return renderer_name_.c_str();
 }
 
+void RendererProxy::ClearCaches() {
+  EnsureUIThreadVoid([this]() { actual_renderer_->ClearCaches(); });
+}
+
 }  // namespace zenplay

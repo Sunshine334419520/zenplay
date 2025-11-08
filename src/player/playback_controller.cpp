@@ -401,7 +401,7 @@ void PlaybackController::VideoDecodeTask() {
   // 设为 500ms，这样即使队列满，DecodeTask 也会每 500ms 检查一次
   // ShouldPause/ShouldStop
   // ========================================
-  constexpr int kPushFrameTimeoutMs = 500;
+  constexpr int kPushFrameTimeoutMs = 100;
 
   while (!state_manager_->ShouldStop()) {
     // ========================================
@@ -767,23 +767,23 @@ bool PlaybackController::ExecuteSeek(const SeekRequest& request) {
       return false;
     }
 
-    // === 步骤2: 暂停数据处理 ===
-    MODULE_DEBUG(LOG_MODULE_PLAYER, "Pausing players");
+    // === 步骤2-7: PreSeek ===
+    // 职责说明：只调用 PreSeek，不直接操作 renderer
+    // VideoPlayer 自己负责通知 renderer 清理缓存
+    MODULE_DEBUG(LOG_MODULE_PLAYER, "Executing PreSeek");
+
     if (video_player_) {
-      video_player_->Pause();
+      video_player_->PreSeek();  // 内部会调用 renderer_->ClearCaches()
     }
     if (audio_player_) {
-      audio_player_->Pause();
+      audio_player_->PreSeek();
     }
 
-    // 等待解码线程进入暂停状态（最多100ms）
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
-
-    // === 步骤3: 清空所有队列 ===
     ClearAllQueues();
 
-    // === 步骤4: Demuxer Seek ===
-    MODULE_DEBUG(LOG_MODULE_PLAYER, "Demuxer seeking");
+    // === 步骤8: Demuxer Seek ===
+    MODULE_DEBUG(LOG_MODULE_PLAYER, "Demuxer seeking to {}ms",
+                 request.timestamp_ms);
 
     // FFmpeg 使用微秒为单位
     int64_t timestamp_us = request.timestamp_ms * 1000;
@@ -795,7 +795,7 @@ bool PlaybackController::ExecuteSeek(const SeekRequest& request) {
       return false;
     }
 
-    // === 步骤5: 刷新解码器缓冲区 ===
+    // === 步骤9: 刷新解码器缓冲区 ===
     MODULE_DEBUG(LOG_MODULE_PLAYER, "Flushing decoders");
 
     if (video_decoder_ && video_decoder_->opened()) {
@@ -805,7 +805,7 @@ bool PlaybackController::ExecuteSeek(const SeekRequest& request) {
       audio_decoder_->FlushBuffers();
     }
 
-    // === 步骤6: 重置同步控制器到目标位置 ===
+    // === 步骤10: 重置同步控制器到目标位置 ===
     MODULE_DEBUG(LOG_MODULE_PLAYER,
                  "Resetting sync controller to target position");
 
@@ -814,36 +814,13 @@ bool PlaybackController::ExecuteSeek(const SeekRequest& request) {
       av_sync_controller_->ResetForSeek(request.timestamp_ms);
     }
 
-    // 重置播放器时间戳
-    if (video_player_) {
-      video_player_->ResetTimestamps();
-    }
-    if (audio_player_) {
-      audio_player_->ResetTimestamps();
-    }
-
-    // === 步骤6.7: 清空音频硬件缓冲区 ===
-    // ✅ 在队列预填充后才清空硬件缓冲区，确保有数据可以立即播放
-    MODULE_DEBUG(LOG_MODULE_PLAYER, "Flushing audio hardware buffer");
-    if (audio_player_) {
-      audio_player_->Flush();
-    }
-
-    // === 步骤7: 恢复状态 ===
+    // === 步骤11: 恢复状态 ===
     MODULE_DEBUG(LOG_MODULE_PLAYER, "Restoring state: {}",
                  PlayerStateManager::GetStateName(request.restore_state));
 
     if (request.restore_state == PlayerStateManager::PlayerState::kPlaying) {
       // 1. 先转换状态，唤醒 DemuxTask 和 AudioDecodeTask
       state_manager_->TransitionToPlaying();
-
-      // 2. 然后启动播放器（此时解码线程已开始准备数据）
-      if (video_player_) {
-        video_player_->Resume();
-      }
-      if (audio_player_) {
-        audio_player_->Resume();
-      }
     } else if (request.restore_state ==
                PlayerStateManager::PlayerState::kPaused) {
       state_manager_->TransitionToPaused();
@@ -851,6 +828,19 @@ bool PlaybackController::ExecuteSeek(const SeekRequest& request) {
       state_manager_->TransitionToStopped();
     }
 
+    // === 步骤12: PostSeek ===
+    MODULE_DEBUG(LOG_MODULE_PLAYER, "Executing PostSeek");
+
+    if (audio_player_) {
+      audio_player_->PostSeek(request.restore_state);
+    }
+
+    if (video_player_) {
+      video_player_->PostSeek(request.restore_state);
+    }
+
+    MODULE_INFO(LOG_MODULE_PLAYER, "✅ Seek completed successfully to {}ms",
+                request.timestamp_ms);
     seeking_.store(false);
     return true;
 

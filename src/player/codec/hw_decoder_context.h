@@ -104,12 +104,16 @@ class HWDecoderContext {
   // ✅ 像 MPV 一样：使用 FFmpeg API 初始化硬件加速（而不是手动创建）
   Result<void> InitGenericHWAccel(AVCodecContext* ctx, AVPixelFormat hw_fmt);
 
+#ifdef OS_WIN
+  bool EnsureD3D11BindFlags(AVBufferRef* frames_ctx_ref) const;
+#endif
+
   HWDecoderType decoder_type_ = HWDecoderType::kNone;
   AVBufferRef* hw_device_ctx_ = nullptr;  // AVHWDeviceContext
   AVPixelFormat hw_pix_fmt_ = AV_PIX_FMT_NONE;
 
-  // 状态标志：防止 get_format 回调中重复创建帧上下文
-  mutable bool frames_ctx_created_ = false;
+  // 记录当前生效的 hw_frames_ctx（非拥有）。用于检测 FFmpeg 在运行时替换。
+  mutable AVBufferRef* last_hw_frames_ctx_ = nullptr;
 
 #ifdef OS_WIN
   // D3D11 设备（从 AVHWDeviceContext 提取，不拥有所有权）

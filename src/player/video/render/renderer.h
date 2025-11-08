@@ -35,6 +35,13 @@ class Renderer {
 
   // Get renderer info
   virtual const char* GetRendererName() const = 0;
+
+  /**
+   * @brief 清空所有渲染缓存
+   * 在 Seek 时调用，确保没有野指针或过期资源
+   * 默认实现：空（do nothing）
+   */
+  virtual void ClearCaches() = 0;
 };
 
 }  // namespace zenplay

@@ -355,4 +355,56 @@ int AudioPlayer::FillAudioBuffer(uint8_t* buffer, int buffer_size) {
   return bytes_filled;
 }
 
+void AudioPlayer::PreSeek() {
+  MODULE_INFO(LOG_MODULE_AUDIO, "PreSeek: starting cleanup");
+
+  try {
+    // 1. 暂停播放
+    Pause();
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+
+    // 2. 清空硬件播放缓冲区（关键！防止音频杂音）
+    if (audio_output_) {
+      audio_output_->Flush();
+      MODULE_DEBUG(LOG_MODULE_AUDIO, "PreSeek: audio hardware buffer cleared");
+    }
+
+    // 3. 清空当前正在消费的帧
+    current_playback_frame_.Clear();
+    current_frame_offset_ = 0;
+
+    // 4. 清空帧队列（复用现有方法）
+    ClearFrames();
+
+    MODULE_INFO(LOG_MODULE_AUDIO, "✅ PreSeek completed");
+
+  } catch (const std::exception& e) {
+    MODULE_ERROR(LOG_MODULE_AUDIO, "PreSeek exception: {}", e.what());
+    throw;
+  }
+}
+
+void AudioPlayer::PostSeek(PlayerStateManager::PlayerState target_state) {
+  MODULE_INFO(LOG_MODULE_AUDIO, "PostSeek: initializing for state={}",
+              PlayerStateManager::GetStateName(target_state));
+
+  try {
+    // 如果目标状态是 Playing，则恢复播放
+    if (target_state == PlayerStateManager::PlayerState::kPlaying) {
+      Resume();
+      MODULE_DEBUG(LOG_MODULE_AUDIO, "PostSeek: resumed playback");
+    } else {
+      // 保持暂停状态
+      MODULE_DEBUG(LOG_MODULE_AUDIO, "PostSeek: keeping paused state");
+    }
+
+    MODULE_INFO(LOG_MODULE_AUDIO, "✅ PostSeek completed");
+
+  } catch (const std::exception& e) {
+    MODULE_ERROR(LOG_MODULE_AUDIO, "PostSeek exception: {}", e.what());
+    throw;
+  }
+}
+
 }  // namespace zenplay

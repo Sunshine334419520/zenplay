@@ -405,4 +405,41 @@ const char* D3D11Renderer::GetRendererName() const {
   return "D3D11 Hardware Renderer";
 }
 
+void D3D11Renderer::ClearCaches() {
+  MODULE_INFO(LOG_MODULE_RENDERER, "ClearCaches: starting cleanup");
+
+  // ========================================
+  // 1. 释放所有缓存的 SRV
+  // ========================================
+  for (auto& cache : srv_pool_) {
+    if (cache.y_srv) {
+      MODULE_DEBUG(LOG_MODULE_RENDERER, "Releasing Y SRV");
+      cache.y_srv.Reset();
+    }
+    if (cache.uv_srv) {
+      MODULE_DEBUG(LOG_MODULE_RENDERER, "Releasing UV SRV");
+      cache.uv_srv.Reset();
+    }
+  }
+
+  // ========================================
+  // 2. 清空池
+  // ========================================
+  srv_pool_.clear();
+
+  // ========================================
+  // 3. 重置当前 SRV 指针
+  // ========================================
+  y_srv_.Reset();
+  uv_srv_.Reset();
+
+  // ========================================
+  // 4. 重置统计计数
+  // ========================================
+  srv_cache_hits_ = 0;
+  srv_cache_misses_ = 0;
+
+  MODULE_INFO(LOG_MODULE_RENDERER, "✅ SRV caches cleared");
+}
+
 }  // namespace zenplay

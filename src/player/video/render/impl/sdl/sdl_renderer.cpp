@@ -18,6 +18,8 @@ extern "C" {
 
 extern "C" {
 #include <libswscale/swscale.h>
+
+#include "sdl_renderer.h"
 }
 
 namespace zenplay {
@@ -169,6 +171,8 @@ void SDLRenderer::Cleanup() {
 const char* SDLRenderer::GetRendererName() const {
   return "SDL Renderer";
 }
+
+void SDLRenderer::ClearCaches() {}
 
 bool SDLRenderer::InitSDL() {
   return SDLManager::Instance().Initialize();

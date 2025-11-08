@@ -109,20 +109,50 @@ AVPixelFormat HWDecoderContext::GetHWFormat(AVCodecContext* ctx,
 
       // ✅ 关键：像 MPV 一样，在 get_format 中创建 hw_frames_ctx
       // 但使用 FFmpeg API 而不是手动创建
-      if (!hw_ctx->frames_ctx_created_ && ctx->hw_frames_ctx == nullptr) {
+      AVBufferRef* current_frames_ctx = ctx->hw_frames_ctx;
+
+      if (current_frames_ctx == nullptr) {
         MODULE_INFO(LOG_MODULE_DECODER,
-                    "Creating hw_frames_ctx via FFmpeg API (like MPV)");
+                    "Creating hw_frames_ctx via FFmpeg API (MPV-style)");
 
         auto result = hw_ctx->InitGenericHWAccel(ctx, *p);
-        if (result.IsOk()) {
-          hw_ctx->frames_ctx_created_ = true;
-        } else {
+        if (!result.IsOk()) {
           MODULE_ERROR(LOG_MODULE_DECODER,
                        "Failed to init hw_frames_ctx: {}, falling back to SW",
                        result.Message());
-          return AV_PIX_FMT_NONE;  // 强制软件解码
+          return AV_PIX_FMT_NONE;
         }
+
+        current_frames_ctx = ctx->hw_frames_ctx;
+      } else if (current_frames_ctx != hw_ctx->last_hw_frames_ctx_) {
+        MODULE_INFO(LOG_MODULE_DECODER,
+                    "Detected new hw_frames_ctx from FFmpeg, reconfiguring");
+
+        av_buffer_unref(&ctx->hw_frames_ctx);
+        hw_ctx->last_hw_frames_ctx_ = nullptr;
+        auto result = hw_ctx->InitGenericHWAccel(ctx, *p);
+        if (!result.IsOk()) {
+          MODULE_ERROR(
+              LOG_MODULE_DECODER,
+              "Failed to reinitialize hw_frames_ctx: {}, falling back to SW",
+              result.Message());
+          return AV_PIX_FMT_NONE;
+        }
+
+        current_frames_ctx = ctx->hw_frames_ctx;
       }
+
+#ifdef OS_WIN
+      if (!hw_ctx->EnsureD3D11BindFlags(current_frames_ctx)) {
+        MODULE_ERROR(LOG_MODULE_DECODER,
+                     "Failed to ensure D3D11 BindFlags, falling back to SW");
+        if (ctx->hw_frames_ctx) {
+          av_buffer_unref(&ctx->hw_frames_ctx);
+        }
+        hw_ctx->last_hw_frames_ctx_ = nullptr;
+        return AV_PIX_FMT_NONE;
+      }
+#endif
 
       return *p;
     }
@@ -226,6 +256,7 @@ Result<void> HWDecoderContext::InitGenericHWAccel(AVCodecContext* ctx,
 
   // ✅ 赋值给解码器（FFmpeg 接管所有权）
   ctx->hw_frames_ctx = new_frames_ctx;
+  last_hw_frames_ctx_ = new_frames_ctx;
 
   MODULE_INFO(LOG_MODULE_DECODER,
               "✅ hw_frames_ctx initialized successfully via FFmpeg API");
@@ -234,6 +265,50 @@ Result<void> HWDecoderContext::InitGenericHWAccel(AVCodecContext* ctx,
 }
 
 #ifdef OS_WIN
+bool HWDecoderContext::EnsureD3D11BindFlags(AVBufferRef* frames_ctx_ref) const {
+  if (decoder_type_ != HWDecoderType::kD3D11VA || frames_ctx_ref == nullptr) {
+    return true;
+  }
+
+  AVHWFramesContext* frames_ctx =
+      reinterpret_cast<AVHWFramesContext*>(frames_ctx_ref->data);
+  if (!frames_ctx) {
+    return false;
+  }
+
+  auto* d3d11_frames_ctx =
+      reinterpret_cast<AVD3D11VAFramesContext*>(frames_ctx->hwctx);
+  if (!d3d11_frames_ctx) {
+    return false;
+  }
+
+  const bool has_srv_flag =
+      (d3d11_frames_ctx->BindFlags & D3D11_BIND_SHADER_RESOURCE) != 0;
+  if (has_srv_flag) {
+    return true;
+  }
+
+  MODULE_WARN(
+      LOG_MODULE_DECODER,
+      "D3D11 frames_ctx missing SHADER_RESOURCE flag, patching in-place");
+
+  d3d11_frames_ctx->BindFlags |= D3D11_BIND_SHADER_RESOURCE;
+
+  MODULE_INFO(LOG_MODULE_DECODER,
+              "D3D11 frames_ctx BindFlags updated to 0x{:X}",
+              d3d11_frames_ctx->BindFlags);
+
+  int ret = av_hwframe_ctx_init(frames_ctx_ref);
+  if (ret < 0) {
+    MODULE_ERROR(LOG_MODULE_DECODER,
+                 "av_hwframe_ctx_init after BindFlags patch failed: {}",
+                 FormatFFmpegError(ret));
+    return false;
+  }
+
+  return true;
+}
+
 ID3D11Texture2D* HWDecoderContext::GetD3D11Texture(AVFrame* frame) {
   if (!frame || frame->format != AV_PIX_FMT_D3D11) {
     MODULE_ERROR(LOG_MODULE_DECODER, "Invalid frame format for D3D11 texture");
@@ -307,7 +382,7 @@ void HWDecoderContext::Cleanup() {
   }
 
   // 重置状态标志
-  frames_ctx_created_ = false;
+  last_hw_frames_ctx_ = nullptr;
 
 #ifdef OS_WIN
   d3d11_device_ = nullptr;

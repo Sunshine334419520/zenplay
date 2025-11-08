@@ -515,4 +515,65 @@ void VideoPlayer::UpdateStats(bool frame_dropped,
   STATS_UPDATE_RENDER(true, !frame_dropped, frame_dropped, render_time_ms);
 }
 
+void VideoPlayer::PreSeek() {
+  MODULE_INFO(LOG_MODULE_VIDEO, "PreSeek: starting cleanup");
+
+  try {
+    // 1. 暂停渲染线程
+    Pause();
+
+    // // 2. 等待所有待处理的 PushFrameBlocking 返回
+    // const int max_wait_ms = 600;
+    // const int check_interval_ms = 10;
+    // int waited_ms = 0;
+
+    // while (frame_queue_.size() > 0 && waited_ms < max_wait_ms) {
+    //   std::this_thread::sleep_for(std::chrono::milliseconds(check_interval_ms));
+    //   waited_ms += check_interval_ms;
+    // }
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+
+    // 3. 清空帧队列（复用现有方法）
+    ClearFrames();
+
+    // 4. 重置时间戳（复用现有方法）
+    ResetTimestamps();
+
+    // 5. 清空渲染器缓存（关键！防止 SRV 野指针）
+    if (renderer_) {
+      renderer_->ClearCaches();
+    }
+
+    MODULE_INFO(LOG_MODULE_VIDEO, "✅ PreSeek completed");
+
+  } catch (const std::exception& e) {
+    MODULE_ERROR(LOG_MODULE_VIDEO, "PreSeek exception: {}", e.what());
+    throw;
+  }
+}
+
+void VideoPlayer::PostSeek(PlayerStateManager::PlayerState target_state) {
+  MODULE_INFO(LOG_MODULE_VIDEO, "PostSeek: initializing for state={}",
+              PlayerStateManager::GetStateName(target_state));
+
+  try {
+    // ========================================
+    // 1. 如果目标状态是 Playing，则恢复播放
+    // ========================================
+    if (target_state == PlayerStateManager::PlayerState::kPlaying) {
+      Resume();
+      MODULE_DEBUG(LOG_MODULE_VIDEO, "PostSeek: resumed playback");
+    } else {
+      // 保持暂停状态
+      MODULE_DEBUG(LOG_MODULE_VIDEO, "PostSeek: keeping paused state");
+    }
+
+    MODULE_INFO(LOG_MODULE_VIDEO, "✅ PostSeek completed");
+
+  } catch (const std::exception& e) {
+    MODULE_ERROR(LOG_MODULE_VIDEO, "PostSeek exception: {}", e.what());
+    throw;
+  }
+}
+
 }  // namespace zenplay

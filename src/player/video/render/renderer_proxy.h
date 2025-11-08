@@ -39,6 +39,7 @@ class RendererProxy : public Renderer {
   void OnResize(int width, int height) override;
   void Cleanup() override;
   const char* GetRendererName() const override;
+  virtual void ClearCaches() override;
 
  private:
   /**
