@@ -1,5 +1,7 @@
 #include "player/codec/hw_decoder_context.h"
 
+#include <algorithm>
+
 #include "player/codec/hw_decoder_type.h"
 #include "player/common/ffmpeg_error_utils.h"
 #include "player/common/log_manager.h"
@@ -208,25 +210,19 @@ Result<void> HWDecoderContext::InitGenericHWAccel(AVCodecContext* ctx,
   // ════════════════════════════════════════════════════════════
 
   if (frames_ctx->initial_pool_size > 0) {
-    // 基础缓冲 (与 MPV 相同概念)
-    int base_extra = 6;
+    // 参照 mpv: 额外缓冲为 6（对应 av_buffer_pool 和渲染管线延迟）
+    const int base_extra = 6;
 
-    // ZenPlay 特定的额外缓冲 (因为有 frame_queue)
-    // 这个可以根据 frame_queue 的大小动态调整
-    // 假设 frame_queue 最大容量为 30（定义在 video_player.h）
-    int queue_extra = 2;  // frame_queue 导致的额外缓冲
+    // ZenPlay 有更大的帧队列（VideoPlayer::VideoConfig::max_frame_queue_size
+    // 默认 30） 另外 Seek/AV 同步等操作可能让 B 帧在解码线程里积压。
+    const int safety_extra = 2;
 
-    int extra_frames = base_extra + queue_extra;
+    frames_ctx->initial_pool_size += base_extra + safety_extra;
 
-    int base_pool_size = frames_ctx->initial_pool_size;
-    frames_ctx->initial_pool_size += extra_frames;
-
-    MODULE_INFO(
-        LOG_MODULE_DECODER,
-        "📊 Pool size analysis: base={}, extra={} (base:{} + queue:{}), "
-        "final={}",
-        base_pool_size, extra_frames, base_extra, queue_extra,
-        frames_ctx->initial_pool_size);
+    MODULE_INFO(LOG_MODULE_DECODER,
+                "📊 Pool size breakdown: base_extra={}, "
+                " safety_extra={}, final={}",
+                base_extra, safety_extra, frames_ctx->initial_pool_size);
   } else {
     MODULE_INFO(LOG_MODULE_DECODER,
                 "Pool size = 0 (dynamic allocation enabled by FFmpeg)");

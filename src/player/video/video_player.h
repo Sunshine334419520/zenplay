@@ -35,7 +35,7 @@ class VideoPlayer {
   struct VideoConfig {
     double target_fps = 30.0;       // 目标帧率
     bool vsync_enabled = true;      // 垂直同步
-    int max_frame_queue_size = 30;  // 最大帧队列大小（匹配解码节流阈值）
+    int max_frame_queue_size = 15;  // 最大帧队列大小（匹配解码节流阈值）
     bool drop_frames = true;        // 允许丢帧以维持同步
   };
 

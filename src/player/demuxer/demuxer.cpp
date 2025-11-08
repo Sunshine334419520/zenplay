@@ -98,11 +98,11 @@ Result<AVPacket*> Demuxer::ReadPacket() {
                         ? packet->dts * av_q2d(stream->time_base) * 1000.0
                         : -1.0;
 
-    MODULE_DEBUG(LOG_MODULE_DEMUXER,
-                 "📦 Demux video packet: pts={}, dts={}, reorder_offset={}, "
-                 "pts_ms={:.2f}, dts_ms={:.2f}, size={}, flags={}",
-                 packet->pts, packet->dts, (packet->pts - packet->dts), pts_ms,
-                 dts_ms, packet->size, packet->flags);
+    // MODULE_DEBUG(LOG_MODULE_DEMUXER,
+    //              "📦 Demux video packet: pts={}, dts={}, reorder_offset={}, "
+    //              "pts_ms={:.2f}, dts_ms={:.2f}, size={}, flags={}",
+    //              packet->pts, packet->dts, (packet->pts - packet->dts),
+    //              pts_ms, dts_ms, packet->size, packet->flags);
   }
 
   return Result<AVPacket*>::Ok(packet);

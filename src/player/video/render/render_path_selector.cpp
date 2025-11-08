@@ -249,8 +249,7 @@ RenderPathSelection RenderPathSelector::SelectSoftwareFallback(
 // ==================== 辅助函数 ====================
 
 bool RenderPathSelector::IsHardwareAccelerationEnabled(GlobalConfig* config) {
-  return true;
-  // return config->GetBool("render.use_hardware_acceleration", false);
+  return config->GetBool("render.use_hardware_acceleration", false);
 }
 
 bool RenderPathSelector::IsFallbackAllowed(GlobalConfig* config) {

@@ -522,15 +522,7 @@ void VideoPlayer::PreSeek() {
     // 1. 暂停渲染线程
     Pause();
 
-    // // 2. 等待所有待处理的 PushFrameBlocking 返回
-    // const int max_wait_ms = 600;
-    // const int check_interval_ms = 10;
-    // int waited_ms = 0;
-
-    // while (frame_queue_.size() > 0 && waited_ms < max_wait_ms) {
-    //   std::this_thread::sleep_for(std::chrono::milliseconds(check_interval_ms));
-    //   waited_ms += check_interval_ms;
-    // }
+    // 2. 等待所有待处理的 PushFrameBlocking 返回
     std::this_thread::sleep_for(std::chrono::milliseconds(20));
 
     // 3. 清空帧队列（复用现有方法）
