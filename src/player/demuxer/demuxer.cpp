@@ -23,10 +23,31 @@ Result<void> Demuxer::Open(const std::string& url) {
 
   AVDictionary* options = nullptr;
 
-  if (url.find("rtsp://") == 0 || url.find("rtmp://") == 0) {
-    // For RTSP/RTMP, we can set some options if needed
-    av_dict_set(&options, "rtsp_transport", "tcp", 0);  // Use TCP for RTSP
-    av_dict_set(&options, "timeout", "5000000", 0);  // Set timeout to 5 seconds
+  // ✅ 通用网络选项（所有网络流）
+  av_dict_set(&options, "reconnect", "1", 0);
+  av_dict_set(&options, "reconnect_delay_max", "5", 0);
+  av_dict_set(&options, "reconnect_streamed", "1", 0);
+
+  // ✅ HTTP/HTTPS 优化
+  if (url.find("http://") == 0 || url.find("https://") == 0) {
+    av_dict_set(&options, "buffer_size", "10485760", 0);  // 10MB
+    av_dict_set(&options, "max_delay", "5000000", 0);     // 5s
+    MODULE_DEBUG(LOG_MODULE_DEMUXER,
+                 "HTTP(S) stream: buffer=10MB, max_delay=5s");
+  }
+  // ✅ RTSP/RTMP 优化
+  else if (url.find("rtsp://") == 0 || url.find("rtmp://") == 0) {
+    av_dict_set(&options, "rtsp_transport", "tcp", 0);
+    av_dict_set(&options, "buffer_size", "5242880", 0);  // 5MB
+    av_dict_set(&options, "max_delay", "5000000", 0);    // 5s
+    av_dict_set(&options, "timeout", "2000000", 0);      // 2s超时
+    MODULE_DEBUG(LOG_MODULE_DEMUXER, "RTSP(P) stream: buffer=5MB, timeout=2s");
+  }
+  // ✅ UDP 协议（低延迟直播）
+  else if (url.find("udp://") == 0) {
+    av_dict_set(&options, "buffer_size", "1048576", 0);  // 1MB
+    av_dict_set(&options, "timeout", "1000000", 0);      // 1s
+    MODULE_DEBUG(LOG_MODULE_DEMUXER, "UDP stream: buffer=1MB, timeout=1s");
   }
 
   int ret =

@@ -171,8 +171,9 @@ class PlaybackController {
   std::shared_ptr<PlayerStateManager> state_manager_;
 
   // 数据队列（使用 BlockingQueue 替代轮询）
-  BlockingQueue<AVPacket*> video_packet_queue_{80};  // 视频包队列，容量 40
-  BlockingQueue<AVPacket*> audio_packet_queue_{80};  // 音频包队列，容量 40
+  // ✅ 网络流优化：增大队列容量以应对网络抖动
+  BlockingQueue<AVPacket*> video_packet_queue_{64};  // 视频包队列，容量增至 64
+  BlockingQueue<AVPacket*> audio_packet_queue_{96};  // 音频包队列，容量增至 96
 
   // 解码线程（使用std::thread，因为需要持续运行）
   std::unique_ptr<std::thread> demux_thread_;
