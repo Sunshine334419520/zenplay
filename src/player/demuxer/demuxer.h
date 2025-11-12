@@ -57,6 +57,7 @@ class Demuxer {
 
  private:
   void probeStreams();
+  bool IsNetworkProtocol(const std::string& url) const;
 
   AVFormatContext* format_context_;
   std::vector<int> video_streams_;

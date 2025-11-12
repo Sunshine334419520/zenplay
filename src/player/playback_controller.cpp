@@ -359,9 +359,6 @@ void PlaybackController::DemuxTask() {
       break;
     }
 
-    // MODULE_DEBUG(LOG_MODULE_PLAYER, "Demuxed packet, size: {}, pts: {}",
-    //              packet->size, packet->pts);
-
     auto demux_time_ms = TIMER_END_MS_INT(demux_read);
 
     STATS_UPDATE_DEMUX(

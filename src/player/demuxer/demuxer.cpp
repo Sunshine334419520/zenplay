@@ -23,10 +23,12 @@ Result<void> Demuxer::Open(const std::string& url) {
 
   AVDictionary* options = nullptr;
 
-  // ✅ 通用网络选项（所有网络流）
-  av_dict_set(&options, "reconnect", "1", 0);
-  av_dict_set(&options, "reconnect_delay_max", "5", 0);
-  av_dict_set(&options, "reconnect_streamed", "1", 0);
+  // ✅ 通用网络选项（仅对网络流生效）
+  if (IsNetworkProtocol(url)) {
+    av_dict_set(&options, "reconnect", "1", 0);
+    av_dict_set(&options, "reconnect_delay_max", "5", 0);
+    av_dict_set(&options, "reconnect_streamed", "1", 0);
+  }
 
   // ✅ HTTP/HTTPS 优化
   if (url.find("http://") == 0 || url.find("https://") == 0) {
@@ -191,6 +193,13 @@ void Demuxer::probeStreams() {
 
   MODULE_INFO(LOG_MODULE_DEMUXER, "Found {} video streams, {} audio streams",
               video_streams_.size(), audio_streams_.size());
+}
+
+bool Demuxer::IsNetworkProtocol(const std::string& url) const {
+  return url.find("http://") == 0 || url.find("https://") == 0 ||
+         url.find("rtsp://") == 0 || url.find("rtmp://") == 0 ||
+         url.find("rtmps://") == 0 || url.find("udp://") == 0 ||
+         url.find("tcp://") == 0;
 }
 
 }  // namespace zenplay
