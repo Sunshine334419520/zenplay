@@ -37,13 +37,19 @@ Result<void> Demuxer::Open(const std::string& url) {
     MODULE_DEBUG(LOG_MODULE_DEMUXER,
                  "HTTP(S) stream: buffer=10MB, max_delay=5s");
   }
-  // ✅ RTSP/RTMP 优化
-  else if (url.find("rtsp://") == 0 || url.find("rtmp://") == 0) {
+  // ✅ RTSP 优化
+  else if (url.find("rtsp://") == 0) {
     av_dict_set(&options, "rtsp_transport", "tcp", 0);
     av_dict_set(&options, "buffer_size", "5242880", 0);  // 5MB
     av_dict_set(&options, "max_delay", "5000000", 0);    // 5s
     av_dict_set(&options, "timeout", "2000000", 0);      // 2s超时
-    MODULE_DEBUG(LOG_MODULE_DEMUXER, "RTSP(P) stream: buffer=5MB, timeout=2s");
+    MODULE_DEBUG(LOG_MODULE_DEMUXER, "RTSP stream: buffer=5MB, timeout=2s");
+  }
+  // ✅ RTMP 优化
+  else if (url.find("rtmp://") == 0 || url.find("rtmps://") == 0) {
+    // RTMP 需要最少配置，避免与内部参数冲突
+    av_dict_set(&options, "buffer_size", "5242880", 0);  // 5MB
+    MODULE_DEBUG(LOG_MODULE_DEMUXER, "RTMP(S) stream: buffer=5MB");
   }
   // ✅ UDP 协议（低延迟直播）
   else if (url.find("udp://") == 0) {
