@@ -87,49 +87,6 @@ ZenPlay 是一个基于 **C++17** 开发的跨平台多媒体播放器，采用�
 
 ---
 
-## ✨ 功能特性
-
-### 已实现功能 ✅
-
-#### 播放控制
-- ✅ 播放/暂停/停止
-- ✅ 快进/快退 Seek
-- ✅ 音量调节
-- ✅ 全屏切换
-
-#### 媒体支持
-- ✅ 本地文件播放
-- ✅ 网络流媒体播放（HTTP/RTSP/RTMP）
-- ✅ 多种视频编码（H.264/H.265/VP9 等）
-- ✅ 多种音频编码（AAC/MP3/FLAC/Opus 等）
-
-#### 技术特性
-- ✅ 精确的音视频同步（误差 < 50ms）
-- ✅ 硬件加速视频渲染
-- ✅ 低延迟音频输出（WASAPI 50ms 缓冲）
-- ✅ 实时性能统计和监控
-- ✅ 完善的日志系统
-- ✅ 线程安全的队列管理
-
-#### UI 功能
-- ✅ 现代化深色主题界面
-- ✅ 实时播放进度显示
-- ✅ 拖动进度条快速定位
-- ✅ 响应式窗口布局
-- ✅ 菜单栏和工具栏
-
-### 规划中功能 🚧
-
-- 🚧 播放列表管理
-- 🚧 字幕支持
-- 🚧 视频滤镜效果
-- 🚧 截图功能
-- 🚧 录制功能
-- 🚧 音轨/字幕切换
-- 🚧 倍速播放
-
----
-
 ## 🛠️ 技术栈
 
 ### 核心框架
@@ -159,76 +116,6 @@ ZenPlay 是一个基于 **C++17** 开发的跨平台多媒体播放器，采用�
   - Windows: MSVC 2019+ / MinGW
   - Linux: GCC 9+ / Clang 10+
   - macOS: Xcode 12+ / Clang 10+
-
----
-
-## 📁 项目结构
-
-```
-zenplay/
-├── CMakeLists.txt              # CMake 构建配置
-├── conanfile.py                # Conan 依赖管理
-├── README.md                   # 项目说明文档
-│
-├── src/                        # 源代码目录
-│   ├── main.cpp                # 程序入口
-│   ├── player/                 # 播放器核心
-│   │   ├── zen_player.cpp/h    # 播放器主类（应用层接口）
-│   │   ├── playback_controller.cpp/h  # 播放控制器（协调器）
-│   │   ├── audio/              # 音频子系统
-│   │   │   ├── audio_player.cpp/h     # 音频播放器
-│   │   │   ├── audio_output.h         # 音频输出接口
-│   │   │   └── impl/                  # 平台实现
-│   │   │       ├── wasapi_audio_output.cpp/h  # Windows WASAPI
-│   │   │       └── alsa_audio_output.cpp/h    # Linux ALSA
-│   │   ├── video/              # 视频子系统
-│   │   │   ├── video_player.cpp/h     # 视频播放器
-│   │   │   └── render/                # 渲染模块
-│   │   │       ├── renderer.h         # 渲染器接口
-│   │   │       ├── sdl_renderer.cpp/h # SDL2 实现
-│   │   │       └── renderer_proxy.cpp/h # 线程安全代理
-│   │   ├── codec/              # 编解码模块
-│   │   │   ├── decode.cpp/h           # 解码器基类
-│   │   │   ├── audio_decoder.h        # 音频解码器
-│   │   │   └── video_decoder.h        # 视频解码器
-│   │   ├── demuxer/            # 解封装模块
-│   │   │   └── demuxer.cpp/h          # FFmpeg 解封装
-│   │   ├── sync/               # 同步控制
-│   │   │   └── av_sync_controller.cpp/h  # 音视频同步
-│   │   ├── common/             # 公共组件
-│   │   │   ├── log_manager.cpp/h      # 日志管理
-│   │   │   ├── timer.cpp/h            # 计时器工具
-│   │   │   ├── player_state_manager.cpp/h  # 状态管理
-│   │   │   └── common_def.h           # 公共定义
-│   │   └── stats/              # 统计系统
-│   │       ├── statistics_manager.cpp/h  # 统计管理器
-│   │       └── stats_types.h             # 统计类型定义
-│   └── view/                   # UI 界面
-│       └── main_window.cpp/h   # 主窗口
-│
-├── docs/                       # 技术文档（详细设计文档）
-│   ├── zenplay_architecture_analysis.md    # 架构分析
-│   ├── audio_video_sync_design.md          # 音视频同步设计
-│   ├── threading_guide.md                  # 线程模型指南
-│   ├── statistics_system_design.md         # 统计系统设计
-│   ├── logging_configuration.md            # 日志系统配置
-│   ├── sdl_renderer_guide.md               # SDL 渲染指南
-│   ├── wasapi_buffer_size_analysis.md      # WASAPI 缓冲区分析
-│   └── ...                                 # 更多技术文档
-│
-├── resources/                  # 资源文件
-│   ├── zenplay.qrc             # Qt 资源文件
-│   ├── icons/                  # 图标资源
-│   └── styles/                 # 样式文件
-│       └── dark_theme.qss      # 深色主题
-│
-├── third_party/                # 第三方库
-│   └── loki/                   # Loki 线程框架
-│
-└── examples/                   # 示例代码
-    ├── sdl_renderer_demo.cpp   # SDL 渲染示例
-    └── renderer_proxy_async_usage.cpp  # 异步渲染示例
-```
 
 ---
 
@@ -330,248 +217,250 @@ cmake --build build/Debug
 ./build/Debug/zenplay
 ```
 
-### 常见问题
-
-#### Q: Conan 安装依赖失败？
-
-**A**: 检查 Conan 版本（需要 2.x）和网络连接。如果 Qt6 构建超时，可以增加超时时间：
-
-```bash
-conan config set general.build_timeout=3600
-```
-
-#### Q: CMake 找不到依赖？
-
-**A**: 确保运行了 `conan install` 并且使用了正确的 preset：
-
-```bash
-cmake --preset conan-default
-```
-
-#### Q: 编译时报 C++ 标准错误？
-
-**A**: 确保编译器支持 C++17：
-
-```bash
-# Linux/macOS
-g++ --version  # 需要 GCC 9+
-clang++ --version  # 需要 Clang 10+
-
-# Windows (Visual Studio)
-# 需要 Visual Studio 2019 或更高版本
-```
-
-#### Q: Linux 下缺少音频/视频驱动？
-
-**A**: 安装必要的开发库：
-
-```bash
-# Ubuntu/Debian
-sudo apt-get install libasound2-dev libsdl2-dev
-
-# Fedora/RHEL
-sudo dnf install alsa-lib-devel SDL2-devel
-```
-
----
-
 ## 📚 技术文档
 
-### 核心技术
-
-以下文档详细介绍了项目的核心技术实现和设计决策。
-
-#### 音视频同步
-
-音视频同步是播放器最核心的技术之一，决定了用户体验的流畅度。
-
-- 📄 [**音视频同步设计**](docs/audio_video_sync_design.md) - 同步算法原理和实现
-  - PTS/DTS 时间戳管理
-  - 主时钟选择策略（音频时钟）
-  - 视频帧显示时机计算
-  - 丢帧和重复帧策略
-  - 时钟漂移补偿算法
-
-- 📄 [**音视频同步分析**](docs/audio_video_sync_analysis.md) - 同步性能分析
-  - 同步精度测试（< 50ms）
-  - 时钟更新频率优化
-  - Seek 后的快速重同步
-  - 网络抖动处理
-
-#### 视频渲染
-
-高性能、低延迟的视频渲染是流畅播放的关键。
-
-- 📄 [**SDL 渲染器指南**](docs/sdl_renderer_guide.md) - SDL2 渲染实现
-  - 硬件加速纹理创建
-  - YUV 到 RGB 转换
-  - 双缓冲和垂直同步
-  - 渲染性能优化
-
-- 📄 [**渲染代理设计**](docs/renderer_proxy_design.md) - 线程安全渲染
-  - RendererProxy 架构设计
-  - 跨线程渲染调用
-  - 渲染命令队列
-  - UI 线程和渲染线程协调
-
-- 📄 [**渲染代理使用**](docs/renderer_proxy_usage.md) - 使用指南和最佳实践
-
-- 📄 [**渲染线程分析**](docs/render_thread_analysis.md) - 渲染线程模型
-  - VideoRenderThread 实现
-  - 帧显示时机计算
-  - 丢帧策略优化
-  - 渲染性能监控
-
-#### 音频渲染
-
-跨平台、低延迟的音频输出是良好音质的保证。
-
-- 📄 [**WASAPI 缓冲区分析**](docs/wasapi_buffer_size_analysis.md) - Windows 音频优化
-  - WASAPI 共享模式 vs 独占模式
-  - 缓冲区大小对延迟的影响（1 秒 → 50ms）
-  - 轮询模式 vs 事件驱动模式
-  - 音频 Underrun 检测和防止
-
-- 📄 [**WASAPI 首次回调解析**](docs/wasapi_first_callback_explained.md) - 音频启动流程
-  - WASAPI 初始化流程
-  - 首次回调的特殊行为
-  - 大缓冲区填充策略
-
-- 📄 [**音频架构分析**](docs/audio_architecture_analysis.md) - 音频子系统设计
-  - AudioPlayer 架构
-  - 重采样流程（SwrContext）
-  - 跨平台音频输出抽象
-  - 音频时钟更新机制
-
-#### 线程模型
-
-合理的多线程设计是高性能播放器的基础。
-
-- 📄 [**线程模型指南**](docs/threading_guide.md) - 完整的线程架构
-  - DemuxTask（解封装线程）
-  - VideoDecodeTask（视频解码线程）
-  - AudioDecodeTask（音频解码线程）
-  - VideoRenderThread（视频渲染线程）
-  - AudioCallback（音频回调线程）
-  - 线程间通信和同步机制
-  - 死锁预防策略
-
-#### 日志系统
-
-强大的日志系统帮助调试和性能分析。
-
-- 📄 [**日志系统配置**](docs/logging_configuration.md) - 日志管理
-  - spdlog 集成和配置
-  - 编译期和运行期日志级别
-  - 模块化日志管理
-  - 性能优化（异步日志）
-  - 日志文件轮转
-
-- 📄 [**计时器工具指南**](docs/timer_util_guide.md) - 性能测量
-  - 高精度计时器（TIMER_START/TIMER_END）
-  - 解码/渲染/解封装耗时统计
-  - 性能热点分析
-
-#### 统计系统
-
-实时性能监控帮助发现和解决性能问题。
-
-- 📄 [**统计系统设计**](docs/statistics_system_design.md) - 统计架构
-  - 统计指标定义（解封装/解码/渲染）
-  - StatisticsManager 设计
-  - 线程安全的统计更新
-  - 统计数据导出
-
-- 📄 [**统计系统实现报告**](docs/statistics_system_implementation_report.md) - 实现细节
-  - 统计宏的使用（STATS_UPDATE_DEMUX/DECODE/RENDER）
-  - 实时帧率计算
-  - 缓冲区状态监控
-  - 性能瓶颈诊断
-
-### 架构设计
-
-了解整体架构和设计模式。
-
-- 📄 [**ZenPlay 架构分析**](docs/zenplay_architecture_analysis.md) - **核心架构文档** ⭐
-  - 分层架构设计（UI/应用/核心/组件/平台）
-  - 核心组件详解（ZenPlayer、PlaybackController 等）
-  - 数据流和处理流程
-  - 线程模型概览
-  - 架构优势和改进建议
-
-- 📄 [**状态管理设计**](docs/state_management_comparison.md) - 播放器状态机
-  - PlayerStateManager 设计
-  - 状态转换规则（Idle/Playing/Paused/Seeking 等）
-  - 状态同步机制
-  - 观察者模式应用
-
-- 📄 [**状态转换指南**](docs/state_transition_guide.md) - 状态转换详解
-  - 合法的状态转换路径
-  - 错误处理和回滚
-  - 状态变更通知
-
-#### Seek 实现
-
-快速、准确的跳转是用户体验的重要指标。
-
-- 📄 [**异步 Seek 实现指南**](docs/async_seek_implementation_guide.md) - Seek 架构
-  - 异步 Seek 流程设计
-  - Seek 请求队列管理
-  - 解码器和缓冲区清理
-  - Seek 后的快速重同步
-
-- 📄 [**音频 Flush 修复总结**](docs/seek_audio_flush_fix_summary.md) - Seek 优化
-  - Seek 后音频延迟问题分析
-  - 缓冲区清理策略
-  - 状态转换顺序优化（解决 1-2 秒延迟）
-
-### 组件详解
-
-深入了解各个核心组件的实现。
-
-- 📄 [**UI 使用指南**](docs/ui_guide.md) - 用户界面
-  - Qt6 界面设计
-  - 深色主题实现
-  - 控制栏布局
-  - 事件处理机制
+本节提供 ZenPlay 项目的完整技术文档，从整体架构到具体实现细节。建议按顺序阅读以建立完整的技术理解。
 
 ---
 
-## 🗺️ 开发路线
+### 1. 架构设计
 
-### 已完成 ✅
+**从宏观视角理解 ZenPlay 的整体设计和核心思想。**
 
-- [x] 基础播放框架
-- [x] FFmpeg 解封装和解码
-- [x] SDL2 视频渲染
-- [x] WASAPI 音频输出（Windows）
-- [x] 音视频同步算法
-- [x] Qt6 用户界面
-- [x] 多线程架构
-- [x] 日志系统
-- [x] 统计系统
-- [x] Seek 功能
-- [x] 状态管理系统
-- [x] 性能优化（缓冲区大小、同步精度）
+- 📄 [**整体架构设计**](docs/architecture_overview.md) - **⭐ 必读：系统架构全景**
+  - 五层架构设计：UI层 → 应用层 → 核心层 → 组件层 → 平台层
+  - 核心组件关系图：ZenPlayer、PlaybackController、AudioPlayer、VideoPlayer
+  - 数据流转全流程：从文件读取到屏幕显示
+  - 多线程协作模型：5个线程的职责分工与通信机制
+  - 设计原则与技术决策
 
-### 进行中 🚧
+- 📄 [**核心组件详解**](docs/core_components.md) - 关键模块深入解析
+  - **ZenPlayer**：应用层统一接口，生命周期管理
+  - **PlaybackController**：核心协调器，管理所有播放线程和队列
+  - **AudioPlayer & VideoPlayer**：对称设计的音视频播放器
+  - **AVSyncController**：音视频同步控制中心
+  - **Demuxer & Decoders**：解封装与解码器架构
 
-- [ ] ALSA 音频输出（Linux）
-- [ ] CoreAudio 音频输出（macOS）
-- [ ] 播放列表管理
-- [ ] 配置文件持久化
+- 📄 [**状态管理系统**](docs/state_management.md) - 播放器状态机设计
+  - PlayerStateManager 统一状态管理
+  - 状态转换规则：Idle → Opening → Playing → Paused → Seeking → Stopped
+  - 线程安全的状态同步
+  - 观察者模式与状态通知
+  - Seek 异步状态处理
 
-### 计划中 📋
+---
 
-- [ ] 字幕支持（SRT/ASS/SSA）
-- [ ] 视频滤镜（亮度/对比度/饱和度）
-- [ ] 截图功能
-- [ ] 录制功能
-- [ ] 音轨/字幕切换
-- [ ] 倍速播放（0.5x - 2.0x）
-- [ ] 网络流优化（缓冲策略）
-- [ ] GPU 解码加速（CUDA/VA-API）
-- [ ] 插件系统
+### 2. 音视频同步
+
+**播放器的核心技术，决定用户体验的关键。**
+
+- 📄 [**音视频同步原理与实现**](docs/av_sync_design.md) - **⭐ 核心算法**
+  - 三种同步模式：AUDIO_MASTER（推荐）、VIDEO_MASTER、EXTERNAL_MASTER
+  - PTS/DTS 时间戳管理与计算
+  - 主时钟选择策略：为什么选择音频时钟
+  - 视频帧显示时机计算：如何决定何时显示下一帧
+  - 音频时钟更新机制：从 AudioCallback 到 AVSyncController
+  - 时钟漂移补偿算法：处理硬件时钟不准确的情况
+  - 丢帧与重复帧策略：保持同步的关键技术
+
+---
+
+### 3. 渲染路径选择器
+
+**智能选择最佳的硬件加速和渲染方案。**
+
+- 📄 [**渲染路径选择器设计**](docs/render_path_selector.md) - 跨平台渲染决策
+  - RenderPathSelector 架构：配置驱动的渲染器选择
+  - 平台检测与能力探测：D3D11、DXVA2、VA-API、VideoToolbox
+  - 硬件加速与软件渲染的选择策略
+  - 自动降级机制：硬件失败时回退到软件渲染
+  - 渲染器与硬件解码器的协同：共享 D3D11 设备实现零拷贝
+
+---
+
+### 4. 视频渲染
+
+**高性能、低延迟的视频渲染实现。**
+
+- 📄 [**视频渲染架构**](docs/video_rendering.md) - 完整的渲染流程
+  - Renderer 接口抽象：跨平台渲染器统一接口
+  - SDL2 渲染器实现：硬件加速纹理与 YUV 转换
+  - D3D11 渲染器实现：Windows 原生 DirectX 渲染
+  - RendererProxy 设计：线程安全的渲染代理
+  - VideoPlayer 与 VideoRenderThread：独立渲染线程模型
+  - 渲染性能优化：双缓冲、垂直同步、批量提交
+
+- 📄 [**零拷贝渲染详解**](docs/zero_copy_rendering.md) - **⭐ 性能关键**
+  - 零拷贝原理：GPU 内存直接访问，无 CPU 拷贝
+  - 硬件解码与渲染的协同：共享 D3D11 设备
+  - HWDecoderContext 与 D3D11Texture2D 的映射
+  - 零拷贝验证机制：ValidateFramesContext
+  - 性能对比：零拷贝 vs 传统拷贝（节省 30-50% CPU）
+  - 回退策略：零拷贝失败时的软件渲染
+
+---
+
+### 5. 音频渲染
+
+**跨平台、低延迟的音频输出实现。**
+
+- 📄 [**音频渲染架构**](docs/audio_rendering.md) - 完整的音频处理流程
+  - AudioPlayer 职责简化：管理播放队列、控制输出设备、跟踪播放时钟
+  - AudioOutput 接口抽象：WASAPI（Windows）、ALSA（Linux）、CoreAudio（macOS）
+  - AudioResampler 独立设计：解码线程预重采样，避免阻塞音频回调
+  - 音频回调机制：系统驱动的实时音频输出
+  - 音频时钟更新：从 FillAudioBuffer 到 AVSyncController
+
+- 📄 [**WASAPI 深度优化**](docs/wasapi_optimization.md) - Windows 音频最佳实践
+  - 共享模式 vs 独占模式的选择
+  - 缓冲区大小优化：从 1 秒降至 50ms，延迟降低 10 倍
+  - 轮询模式 vs 事件驱动模式
+  - 音频 Underrun 检测与防止
+  - 首次回调的特殊处理
+
+- 📄 [**跨平台音频适配**](docs/cross_platform_audio.md) - 音频输出统一接口
+  - AudioOutput 接口设计
+  - WASAPI 实现细节（Windows）
+  - ALSA 实现细节（Linux）
+  - CoreAudio 实现细节（macOS）
+  - 平台差异与统一抽象
+
+---
+
+### 6. 解码设计
+
+**解封装与解码器的实现与优化。**
+
+- 📄 [**解封装器设计**](docs/demuxer_design.md) - 媒体文件解析
+  - Demuxer 架构：基于 FFmpeg AVFormatContext
+  - 多流支持：视频流、音频流、字幕流的探测与选择
+  - 数据包读取：ReadPacket 的线程安全设计
+  - Seek 实现：精确跳转与关键帧搜索
+  - 网络流支持：HTTP、RTSP、RTMP 协议处理
+
+- 📄 [**解码器设计**](docs/decoder_design.md) - 音视频解码实现
+  - Decoder 基类抽象：统一的解码接口
+  - VideoDecoder 实现：硬件加速支持（D3D11VA、DXVA2、VA-API）
+  - AudioDecoder 实现：多种音频格式支持
+  - 硬件解码器上下文：HWDecoderContext 管理
+  - 解码线程模型：VideoDecodeTask 与 AudioDecodeTask
+  - 解码性能优化：帧池复用、零拷贝验证
+
+- 📄 [**硬件加速详解**](docs/hardware_acceleration.md) - GPU 解码加速
+  - 硬件解码类型：D3D11VA、DXVA2、VA-API、VideoToolbox
+  - HWDecoderContext 初始化流程
+  - AVHWDeviceContext 与 AVHWFramesContext 管理
+  - 硬件帧到纹理的映射：GetD3D11Texture
+  - 降级策略：硬件失败时回退到软件解码
+  - 性能对比：硬件解码 vs 软件解码（节省 60-80% CPU）
+
+---
+
+### 7. 配置系统
+
+**灵活的配置管理与热重载支持。**
+
+- 📄 [**全局配置系统**](docs/global_config.md) - 配置管理器设计
+  - GlobalConfig 单例模式：线程安全的全局配置
+  - ConfigValue 类型系统：支持 bool、int、double、string、array、object
+  - 配置文件格式：JSON 配置文件（zenplay.json）
+  - 热重载机制：配置变化监听与自动重载
+  - 配置监听器：ConfigChangeCallback 回调机制
+  - 默认值与验证：配置缺失时的默认行为
+
+- 📄 [**配置管理器**](docs/config_manager.md) - Loki 派遣集成
+  - ConfigManager 与 Loki 任务派遣的集成
+  - 异步配置加载与保存
+  - 配置自动保存机制
+  - 配置文件热重载监控
+
+---
+
+### 8. 日志系统
+
+**强大的日志系统，支持调试与性能分析。**
+
+- 📄 [**日志系统架构**](docs/logging_system.md) - LogManager 设计
+  - spdlog 集成与配置
+  - 模块化日志管理：LOG_MODULE_PLAYER、LOG_MODULE_AUDIO 等
+  - 日志级别控制：TRACE、DEBUG、INFO、WARN、ERROR、CRITICAL
+  - 编译期日志级别过滤：ZENPLAY_LOG_LEVEL 宏
+  - 运行期日志级别动态调整
+  - 日志宏设计：MODULE_DEBUG、MODULE_INFO、MODULE_ERROR 等
+
+- 📄 [**性能测量工具**](docs/timer_util.md) - 高精度计时器
+  - TIMER_START / TIMER_END 宏的使用
+  - 解码耗时统计：视频解码、音频解码
+  - 渲染耗时统计：纹理上传、渲染提交
+  - 解封装耗时统计：数据包读取
+  - 性能热点分析：识别性能瓶颈
+
+- 📄 [**日志最佳实践**](docs/logging_best_practices.md) - 日志使用指南
+  - 日志级别选择原则
+  - 日志格式规范
+  - 日志输出性能优化：异步日志、批量写入
+  - 日志文件轮转与清理
+
+---
+
+### 9. 统计系统
+
+**实时性能监控，帮助诊断和优化性能问题。**
+
+- 📄 [**统计系统设计**](docs/statistics_system.md) - StatisticsManager 架构
+  - 统计指标定义：DemuxStats、DecodeStats、RenderStats
+  - 统计数据类型：帧率、缓冲区状态、延迟、丢帧数等
+  - 线程安全的统计更新：原子操作与锁保护
+  - 统计数据导出：JSON 格式输出
+  - 性能瓶颈诊断：PerformanceBottleneck 枚举
+
+- 📄 [**统计系统集成**](docs/stats_integration.md) - 统计宏的使用
+  - STATS_UPDATE_DEMUX：解封装统计更新
+  - STATS_UPDATE_DECODE：解码统计更新（视频/音频）
+  - STATS_UPDATE_RENDER：渲染统计更新
+  - 实时帧率计算：FPS 统计
+  - 缓冲区状态监控：队列长度、缓冲水位
+  - 同步误差统计：音视频同步偏差
+
+- 📄 [**性能分析实践**](docs/performance_analysis.md) - 使用统计数据优化性能
+  - 如何读取统计数据
+  - 性能瓶颈识别：解封装、解码、渲染
+  - 优化案例分析：WASAPI 缓冲区优化、零拷贝优化等
+  - 性能回归测试
+
+---
+
+### 10. 线程模型
+
+**多线程协作是高性能播放器的基础。**
+
+- 📄 [**线程模型详解**](docs/threading_model.md) - 完整的线程架构
+  - **5 个核心线程**：
+    1. DemuxTask（解封装线程）：读取媒体文件，产生 AVPacket
+    2. VideoDecodeTask（视频解码线程）：解码视频帧
+    3. AudioDecodeTask（音频解码线程）：解码音频帧 + 预重采样
+    4. VideoRenderThread（视频渲染线程）：独立渲染线程
+    5. AudioCallback（音频回调线程）：系统驱动的音频输出
+  - **线程间通信**：BlockingQueue（生产者-消费者模型）
+  - **线程同步机制**：std::atomic、std::mutex、std::condition_variable
+  - **线程生命周期管理**：启动、暂停、恢复、停止
+  - **死锁预防策略**：锁顺序、超时机制、避免嵌套锁
+
+- 📄 [**Seek 专用线程**](docs/seek_thread.md) - 异步 Seek 实现
+  - SeekTask 设计：专用 Seek 线程
+  - Seek 请求队列：BlockingQueue<SeekRequest>
+  - Seek 流程：暂停 → 清空队列 → 跳转 → 恢复
+  - 状态恢复：Seek 后恢复原始播放状态（Playing/Paused）
+  - Seek 优化：音频缓冲区 Flush、快速重同步
+
+---
+
+### 附录：辅助文档
+
+- 📄 [**错误处理系统**](docs/error_handling.md) - Result<T> 与错误传播
+- 📄 [**内存管理策略**](docs/memory_management.md) - 智能指针与对象池
+- 📄 [**代码规范**](docs/coding_style.md) - C++17 最佳实践
+- 📄 [**调试技巧**](docs/debugging_tips.md) - 常见问题排查指南
 
 ---
 
